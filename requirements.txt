@@ -1,0 +1,6 @@
+aiohttp
+loguru
+numpy
+pandas
+py-clob-client
+tqdm
