@@ -3,7 +3,7 @@ import asyncio
 from argparse import ArgumentParser
 from typing import Any, Type
 from strats import Test
-from src.utils import Log
+from src.utils import Log, TimeFrame as TF
 from src.market import Datafeed, Executor
 from src.strategy import On, Strategy
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
