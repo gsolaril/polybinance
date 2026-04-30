@@ -1,55 +1,106 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+from asyncio import CancelledError
+from pandas import Series, DataFrame
 from market import *
-from pandas import Timedelta
-from collections import deque
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-#▄▄▄▄▄▄▄▄▄▄▄▄▄
+#▄▄▄▄▄▄▄
+class On:
+
+    callbacks = list[Callable]()
+    cron = dict[Callable, Timedelta]()
+    
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def tick(cls, func: Callable = None):
+        setattr(func, "_on_tick", True)
+        return func
+    
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄
+    def bind(cls, obj: object):
+        
+        if getattr(obj, "_IS_BOUND", False): return
+        cls.cron = getattr(obj, "cron", dict[Any, Any]())
+        for method in cls.cron: cls.schedule(method)
+
+        for name in dir(obj):
+            method = getattr(obj, name, None)
+            if not callable(method): continue
+            function = getattr(method, "__func__", None)
+            on_tick = getattr(function, "_on_tick", None)
+            if on_tick: cls.callbacks.append(method)
+
+        obj._is_bound = True
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def schedule(cls, method: Callable):
+        
+        async def loop():
+            next = Timestamp.utcnow().ceil(cls.cron[method])
+            while True:
+                until_next = next - Timestamp.utcnow()
+                if (until_next.total_seconds() > 0): continue
+                next = Timestamp.utcnow().ceil(cls.cron[method])
+
+                try: await method()
+                except (CancelledError, KeyboardInterrupt): break
+                except Exception as EXC: Log.exception(EXC); continue
+        
+        asyncio.create_task(loop())
+    
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+#███████████████████████████████████████████████████████████████████████████████████████████████████████████
+#▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+#▄▄▄▄▄▄▄▄▄
+@dataclass
 class Strategy:
-
-    MAX_ENTRIES = 1000000
-    BINANCE_TASKS = list()
-    PMARKET_TASKS = list()
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @staticmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def on_tick(task: Callable, venues: Set[Venue]):
-        async def wrapper(tick: Tick):
-            if (Venue.BINANCE in venues): Strategy.BINANCE_TASKS.append(task)
-            elif (Venue.PMARKET in venues): Strategy.PMARKET_TASKS.append(task)
-            return await task(receiver, tick)
-        return wrapper
-
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @staticmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def on_freq(task: Callable):
-        async def wrapper(*args, **kwargs):
-            async def loop(*args, **kwargs):
-                active, freq = True, kwargs["freq"]
-                next = Timestamp.utcnow().ceil(freq)
-                while active:
-                    if (Timestamp.utcnow() <= next): continue
-                    next = Timestamp.utcnow().ceil(freq)
-                    active = await task()
-            asyncio.create_task(loop())
-        return wrapper
-
+    _IS_BOUND = False
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self):
-        self.active = True
-        self.ticks = deque[Tick](maxlen = self.MAX_ENTRIES)
-        self.receiver = Receiver(self.BINANCE_TASKS, self.PMARKET_TASKS)
-        self.executor = Executor(self.receiver)
-        self.orders = dict[str, Order]()
-        asyncio.run(self.receiver.run())
-
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @on_tick(venues = {Venue.BINANCE, Venue.PMARKET})
-    async def append(self, tick: Tick):
-        self.ticks.append(tick.__dict__)
-
+        self.cron = dict[Callable, Timedelta]()
+        self.orders = dict[str, Dict[str, Any]]()
+        self.datafeed, self.executor = None, None
+        self.data = None
+        self.setup()
+        On.bind(self)
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def setup(self): ...
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def link(self, datafeed: Datafeed, executor: Executor):
+        self._datafeed, self._executor = datafeed, executor
+        self.data = self._datafeed.history
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def send(self, order: Order):
-        response = await self.executor.send(order)
+        assert self._executor is not None, "Executor not linked"
+        response: Dict[str, Any] = await self._executor.send(order)
         self.orders[order.UID] = response
-        return response
+
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+#███████████████████████████████████████████████████████████████████████████████████████████████████████████
+#▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+class Test(Strategy):
+    freq: str = "5m"
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def setup(self):
+        self.freq = Timedelta(self.freq)
+        self.cron = {self.main: self.freq}
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def main(self):
+        df = DataFrame(self.data[self.freq])
+        df = df.set_index(Tick.INDEX).sort_index()
+        df_str = df.to_string(max_rows = 10)
+        Log.debug("Last few entries:\n" + df_str)
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+#███████████████████████████████████████████████████████████████████████████████████████████████████████████
+#▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+if (__name__ == "__main__"):
+    datafeed = Datafeed(callbacks = On.callbacks)
+    executor = Executor(datafeed = datafeed)
+    strategy = Test(datafeed, executor, freq = "5m")
+    asyncio.run(datafeed.run())

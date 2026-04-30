@@ -2,11 +2,9 @@
 import numpy, hmac, hashlib
 from urllib.parse import urlencode
 from dataclasses import dataclass, asdict
-from pandas import Timestamp
-from enum import StrEnum
+from pandas import Timestamp, Timedelta
+from base import Venue
 from utils import *
-#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-class Venue(StrEnum): BINANCE, PMARKET = "BINANCE", "POLYMARKET"
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -65,6 +63,8 @@ class Tick:
     pa: float; qa: float
     pb: float; qb: float
     time: Timestamp = None
+
+    INDEX = ["venue", "symbol", "time"]
     #▄▄▄▄▄▄▄▄
     @property
     def __dict__(self):
@@ -114,6 +114,50 @@ class Tick:
             time = Timestamp(int(data["timestamp"]), unit = "ms", tz = "UTC"),
             pa = A["price"], qa = A["size"], pb = B["price"], qb = B["size"])
         return tick
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+#███████████████████████████████████████████████████████████████████████████████████████████████████████████
+#▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+#▄▄▄▄▄▄▄▄▄
+@dataclass
+class Candle:
+    tf: Timedelta; venue: Venue; symbol: str; volume: int = None; 
+    oa: float = None; ha: float = None; la: float = None; ca: float = None
+    ob: float = None; hb: float = None; lb: float = None; cb: float = None
+    time: Timestamp = None
+
+    INDEX = ["venue", "symbol", "tf", "time"]
+    #▄▄▄▄▄▄▄▄
+    @property
+    def __dict__(self):
+        order = "time tf venue symbol oa ha la ca ob hb lb cb volume"
+        return {key: self.__getattribute__(key) for key in order.split(" ")}
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __post_init__(self):
+        if not isinstance(self.tf, Timedelta): self.tf = Timedelta(self.tf)
+        if self.time is None: self.time = Timestamp.utcnow().floor(self.tf)
+        if (self.ha is None): self.ha = - numpy.inf
+        if (self.la is None): self.la = + numpy.inf
+        if (self.hb is None): self.hb = - numpy.inf
+        if (self.lb is None): self.lb = + numpy.inf
+        if not self.volume: self.volume = 0
+        self.closed = False
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def on_tick(self, tick: Tick):
+        if (tick.time < self.time): return
+        if (tick.time > self.time + self.tf):
+            self.closed = True
+        if self.closed: return
+        if (tick.venue != self.venue): return
+        if (tick.symbol != self.symbol): return
+        if (self.oa is None): self.oa = tick.pa
+        if (self.ob is None): self.ob = tick.pb
+        if (tick.pa > self.ha): self.ha = tick.pa
+        if (tick.pa < self.la): self.la = tick.pa
+        if (tick.pb > self.hb): self.hb = tick.pb
+        if (tick.pb < self.lb): self.lb = tick.pb
+        self.ca, self.cb = tick.pa, tick.pb
+        self.volume = self.volume + 1
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████

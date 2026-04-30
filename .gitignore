@@ -136,4 +136,4 @@ dmypy.json
 logs/
 
 # Ignore the specific config file
-config0.ini
+config.ini
