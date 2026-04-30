@@ -1,15 +1,14 @@
-#▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-from typing import Any
-
-
-import json, tqdm
+#▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+import asyncio, json
+from pandas import Timedelta
+from collections import deque
+from typing import Any, Callable, Dict, List, Optional
 from aiohttp import ClientSession, WSMsgType
 from py_clob_client.client import ClobClient
 from py_clob_client.client import OrderArgs
-from collections import deque
-from pandas import Timestamp
-from models import *
-from base import *
+from src.base import Connector, Venue
+from src.models import Candle, Order, Tick
+from src.utils import Config, Log
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -22,11 +21,8 @@ class Datafeed(Connector):
     def __init__(self, callbacks: List[Callable]):
 
         self._callbacks = callbacks
-        Log.info(f"Retrieving Polymarket token IDs for: [%s]" % str.join(", ", Config.symbols))
-        self.symbols, self.tokens = asyncio.run(self._map_pmarket(Config.symbols, Config.polyevents))
-        tokens_str = str.join("\n", [f" => {key}: {id}" for key, id in self.tokens.items()])
-        Log.success("Retrieved Polymarket token IDs...\n" + tokens_str)
-
+        self.tokens = dict[str, Any]()
+        self.symbols = dict[str, Any]()
         self._candle = dict[str, Candle]()
         self.history = {"tick": dict[tuple, deque]()}
         for tf in ["1s", *Config.polyevents]:
@@ -35,10 +31,18 @@ class Datafeed(Connector):
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def run(self):
-        try: await asyncio.gather(
-            asyncio.create_task(self.connect(self._callbacks, Venue.BINANCE)),
-            asyncio.create_task(self.connect(self._callbacks, Venue.PMARKET)),
-        )
+
+        symbols = str.join(", ", Config.symbols)
+        Log.info(f"Retrieving Polymarket token IDs for: [{symbols}]")
+        symbols, tokens = await self._map_pmarket(Config.symbols, Config.polyevents)
+        self.symbols.update(symbols), self.tokens.update(tokens)
+        tokens_str = str.join("\n", [f" => {key}: {id}" for key, id in self.tokens.items()])
+        Log.success("Retrieved Polymarket token IDs...\n" + tokens_str)
+        try:
+            await asyncio.gather(
+                asyncio.create_task(self.connect(self._callbacks, Venue.BINANCE)),
+                asyncio.create_task(self.connect(self._callbacks, Venue.PMARKET)),
+            )
         except KeyboardInterrupt: Log.success("Exiting...")
         except Exception as EXC: Log.exception(EXC)
 
@@ -50,6 +54,7 @@ class Datafeed(Connector):
         key = (tick.venue, tick.symbol)
         if key not in self.history["tick"]:
             self.history["tick"][key] = empty.copy()
+        self.history["tick"][key].append(tick.__dict__)
 
         for tf, candles in self._candle.items():
 
@@ -69,7 +74,7 @@ class Datafeed(Connector):
     async def connect(self, tasks: List[Callable], venue: Venue):
 
         if (venue == Venue.BINANCE): stream_json = {"method": "SUBSCRIBE", "id": 1,
-            "params": [sym[0].lower() + self.STREAM_KEY[Venue.BINANCE] for sym in self.symbols]}
+            "params": [S.lower() + self.STREAM_KEY[Venue.BINANCE] for S in Config.symbols]}
 
         elif (venue == Venue.PMARKET): stream_json = {"type": "subscribe",
             "channels": [self.STREAM_KEY[Venue.PMARKET]], "assets_ids": [*self.tokens.keys()]}
@@ -95,9 +100,9 @@ class Datafeed(Connector):
                             if tick is None: continue
                             if (venue == Venue.PMARKET):
                                 tick.symbol = self.tokens[tick.symbol]
-                            self.update(tick)
+                            asyncio.create_task(self.update(tick))
                             for task in tasks:
-                                asyncio.create_task(task(self, tick))
+                                asyncio.create_task(task(tick))
 
                     elif (message.type == WSMsgType.ERROR):
                         Log.exception(f"{venue.value} WS error:", WS.exception()); break
@@ -114,19 +119,25 @@ class Executor(Connector):
         Venue.PMARKET: "https://clob.polymarket.com"
     }
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def __init__(self, receiver: Datafeed):
-        self._tokens = receiver.symbols.copy()
-        self.clob = ClobClient(chain_id = 137,
-            key = Config.auth_pmarket.api_key,
-            host = self.URL_API[Venue.PMARKET])
+    def __init__(self, datafeed: Datafeed):
+        self._clob: Optional[ClobClient] = None
+        self._tokens = datafeed.symbols
+    #▄▄▄▄▄▄▄▄▄▄
+    @property#█▄▄▄
+    def clob(self):
+        if self._clob is None:
+            self._clob = ClobClient(chain_id = 137,
+                host = self.URL_API[Venue.PMARKET],
+                key = Config.auth_pmarket.api_key)
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def send(cls, order: Order):
+        return self._clob
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def send(self, order: Order):
         if (order.venue == Venue.BINANCE):
-            return await cls._send_binance(order)
+            return await self._send_binance(order)
         elif (order.venue == Venue.PMARKET):
-            return await cls._send_pmarket(order)
+            return await self._send_pmarket(order)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def _send_binance(self, order: Order):
@@ -156,19 +167,15 @@ class Executor(Connector):
                 order = self.clob.create_order(OrderArgs(
                     token_id = self._tokens[order.symbol],
                     price = order.price, side = order.side,
-                    size = abs(order.size))))
+                    size = abs(order.size) )))
 
-        return await asyncio.to_thread(create_order(order))
+        return await asyncio.to_thread(create_order, order)
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 if (__name__ == "__main__"):
-    async def log_w(_, tick: Tick): return Log.warning(tick.__dict__)
-    async def log_s(_, tick: Tick): return Log.success(tick.__dict__)
-    receiver = Datafeed(binance_tasks = [log_w], pmarket_tasks = [log_s])
+    async def log(_, tick: Tick):
+        return Log.debug(tick.__dict__)
+    receiver = Datafeed(callbacks = [log])
     asyncio.run(receiver.run())
-    #order = Order(venue = Venue.PMARKET, symbol = "BTCUSDT", size = +1e-7, price = 10000)
-    #print(order)
-    #executor = Executor(receiver = receiver)
-    #executor.send(order)

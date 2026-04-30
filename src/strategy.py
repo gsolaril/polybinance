@@ -1,7 +1,12 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+import asyncio, json
+from dataclasses import dataclass
 from asyncio import CancelledError
-from pandas import Series, DataFrame
-from market import *
+from typing import Any, Callable, ClassVar, Dict, List, Tuple
+from pandas import DataFrame, Timedelta, Timestamp, concat
+from src.market import Datafeed, Executor
+from src.models import Order, Tick
+from src.utils import Log
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -12,8 +17,8 @@ class On:
     cron = dict[Callable, Timedelta]()
     
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def tick(cls, func: Callable = None):
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def tick(cls, func: Callable):
         setattr(func, "_on_tick", True)
         return func
     
@@ -21,9 +26,8 @@ class On:
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄
     def bind(cls, obj: object):
         
-        if getattr(obj, "_IS_BOUND", False): return
+        if getattr(obj, "_is_bound", False): return
         cls.cron = getattr(obj, "cron", dict[Any, Any]())
-        for method in cls.cron: cls.schedule(method)
 
         for name in dir(obj):
             method = getattr(obj, name, None)
@@ -35,6 +39,12 @@ class On:
         obj._is_bound = True
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄▄▄
+    def start_cron(cls):
+        for method in cls.cron:
+            cls.schedule(method)
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def schedule(cls, method: Callable):
         
@@ -42,7 +52,10 @@ class On:
             next = Timestamp.utcnow().ceil(cls.cron[method])
             while True:
                 until_next = next - Timestamp.utcnow()
-                if (until_next.total_seconds() > 0): continue
+                wait = until_next.total_seconds()
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                    continue
                 next = Timestamp.utcnow().ceil(cls.cron[method])
 
                 try: await method()
@@ -57,7 +70,6 @@ class On:
 #▄▄▄▄▄▄▄▄▄
 @dataclass
 class Strategy:
-    _IS_BOUND = False
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self):
         self.cron = dict[Callable, Timedelta]()
@@ -85,8 +97,7 @@ class Test(Strategy):
     freq: str = "5m"
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def setup(self):
-        self.freq = Timedelta(self.freq)
-        self.cron = {self.main: self.freq}
+        self.cron = {self.main: Timedelta(self.freq)}
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def main(self):
@@ -94,12 +105,17 @@ class Test(Strategy):
         df = df.set_index(Tick.INDEX).sort_index()
         df_str = df.to_string(max_rows = 10)
         Log.debug("Last few entries:\n" + df_str)
+
+    #▄▄▄▄▄▄▄▄▄
+    @On.tick#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def print(self, tick: Tick):
+        df = concat({K: DataFrame(V) for K, V in self.data["tick"].items() if V})
+        df = df.set_index(Tick.INDEX).sort_index()
+        Log.debug(f"Printing data storage:\n{df}")
+        
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 if (__name__ == "__main__"):
-    datafeed = Datafeed(callbacks = On.callbacks)
-    executor = Executor(datafeed = datafeed)
-    strategy = Test(datafeed, executor, freq = "5m")
-    asyncio.run(datafeed.run())
+    strategy = Test()
