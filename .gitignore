@@ -137,3 +137,6 @@ logs/
 
 # Ignore the specific config file
 config.ini
+
+strats/*.py
+!strats/__init__.py

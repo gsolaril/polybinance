@@ -6,7 +6,7 @@ from typing import Any, Callable, ClassVar, Dict, List
 from pandas import DataFrame, Timedelta, Timestamp
 from src.models import Order, Tick, Candle
 from src.market import Datafeed, Executor
-from src.utils import Log
+from src.utils import Log, TimeFrame
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -85,6 +85,7 @@ class On:
 class Strategy:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self):
+        self._start = Timestamp.utcnow()
         self.cron = dict[Callable, Timedelta]()
         self.orders = dict[str, Dict[str, Any]]()
         self.datafeed, self.executor = None, None
@@ -93,6 +94,9 @@ class Strategy:
         On.bind(self)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def setup(self): ...
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def add_cron(self, method: Callable, freq: Timedelta):
+        self.cron[method] = freq
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def link(self, datafeed: Datafeed, executor: Executor):
         self._datafeed, self._executor = datafeed, executor
@@ -110,10 +114,9 @@ class Strategy:
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class Test(Strategy):
-    freq: str = "1h"
+    freq: TimeFrame = TimeFrame.H1
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def setup(self):
-        self.start = Timestamp.utcnow()
         self.last = Timestamp.utcnow()
 
     #▄▄▄▄▄▄▄▄
@@ -126,7 +129,7 @@ class Test(Strategy):
         DT_FORMAT = "%Y%m%d_%H%M%S"
         time_kill = Timestamp.utcnow()
         str_last = time_kill.strftime(DT_FORMAT)
-        str_start = self.start.strftime(DT_FORMAT)
+        str_start = self._start.strftime(DT_FORMAT)
         str_timeline = f"{str_start}-{str_last}"
 
         candles = self.data.copy()

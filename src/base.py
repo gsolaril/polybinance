@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 from aiohttp import ClientSession
 from pandas import Timestamp
 from enum import StrEnum
-from src.utils import Log
+from src.utils import Log, TimeFrame
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -21,13 +21,6 @@ class Connector:
         Venue.BINANCE: "https://fapi.binance.com/fapi/v1",
         Venue.PMARKET: "https://gamma-api.polymarket.com/events"
     }
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def _tf_to_secs(cls, tf: str):
-        tf = tf.strip().lower()
-        mult = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-        return int(tf[: -1]) * mult[tf[-1]]
-
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def _extract_ids(cls, event: Dict[str, Any]):
@@ -68,24 +61,23 @@ class Connector:
             if isinstance(data, list) and len(data): return data[0]
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def _find_events(cls, session: ClientSession, tf: str, symbol: str,
-                lookback: int = 12, threads: int = 20, verbose: bool = False):
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def _find_events(cls, session: ClientSession, tf: TimeFrame, symbol: str,
+                    lookback: int = 12, threads: int = 20, verbose: bool = False):
 
-        tf_str = tf.strip().lower()
         symbol = symbol.strip().lower()
         semaphore = asyncio.Semaphore(threads)
         async def get_slug(suffix: int):
-            slug = symbol + "-updown-" + tf_str + "-" + str(suffix)
+            slug = symbol + "-updown-" + TimeFrame.invert(tf) + "-" + str(suffix)
             async with semaphore: return await cls._event_by_slug(session, slug)
 
-        tf = cls._tf_to_secs(tf_str)
+        tf_int = int(tf.value.total_seconds())
         now = Timestamp.utcnow().timestamp()
         start = int(now - lookback * 3600)
-        now = int(now - (now % tf))
+        now = int(now - (now % tf_int))
 
         batch_size = threads * 3
-        suffixes = [*range(now, start, -tf)]
+        suffixes = [*range(now, start, -tf_int)]
         iterator = range(len(suffixes) // batch_size)
         if verbose: iterator = tqdm.tqdm(iterator)
 
@@ -99,12 +91,13 @@ class Connector:
                 else: return event
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def _map_pmarket(cls, symbols: List[str], polyevents: List[str]):
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def _map_pmarket(cls, symbols: List[str], timeframes: List[TimeFrame]):
         async with ClientSession() as session:
             tasks = dict[str, Any]()
             for symbol in symbols:
-                for tf in polyevents:
+                tf: TimeFrame = None
+                for tf in timeframes:
                     task = cls._find_events(session, tf, symbol)
                     tasks[(symbol, tf)] = task
             results = await asyncio.gather(*tasks.values())
@@ -116,10 +109,10 @@ class Connector:
             if event is None: continue
             ids = cls._extract_ids(event)
             if ids is None: continue
-            stoe[symbol + "+" + tf] = ids["+"]
-            stoe[symbol + "-" + tf] = ids["-"]
-            etos[ids["+"]] = symbol + "+" + tf
-            etos[ids["-"]] = symbol + "-" + tf
+            stoe[symbol + "+" + tf.name] = ids["+"]
+            stoe[symbol + "-" + tf.name] = ids["-"]
+            etos[ids["+"]] = symbol + "+" + tf.name
+            etos[ids["-"]] = symbol + "-" + tf.name
 
         return stoe, etos
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -127,8 +120,7 @@ class Connector:
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 if (__name__ == "__main__"):
-    polyevents = ["1s", "1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+    polyevents = TimeFrame.from_array(["S1", "M1", "M5", "M15", "M30", "H1", "H4", "D1"])
     symbols = ["BTC", "ETH", "SOL", "XRP", "DOGE", "DOT", "ADA", "LINK", "BCH", "LTC"]
-    stoe, etos = asyncio.run(Connector._map_pmarket(symbols, polyevents))
-    print(stoe)
-    print(etos)
+    stoe, etos = asyncio.run(Connector._map_pmarket(symbols, [*polyevents]))
+    print(stoe), print(etos)

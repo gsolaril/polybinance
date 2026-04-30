@@ -8,15 +8,15 @@ from py_clob_client.client import ClobClient
 from py_clob_client.client import OrderArgs
 from src.base import Connector, Venue
 from src.models import Candle, Order, Tick
-from src.utils import Config, Log
+from src.utils import Config, Log, TimeFrame
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class Datafeed(Connector):
 
-    FREQ_CAND = Timedelta(seconds = 1)
     QUEUE = deque[Any](maxlen = 500000)
+    FREQ_MIN: Timedelta = min(TimeFrame._value2member_map_)
     STREAM_KEY = {Venue.BINANCE: "usdt@bookTicker", Venue.PMARKET: "book"}
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, callbacks: List[Callable]):
@@ -26,7 +26,7 @@ class Datafeed(Connector):
         self.symbols = dict[str, Any]()
         self._candle = dict[str, Candle]()
         self.history = {"tick": dict[tuple, deque]()}
-        for tf in ["1s", *Config.polyevents]:
+        for tf in [TimeFrame.S1, *Config.timeframes]:
             self.history[tf] = dict[tuple, deque]()
             self._candle[tf] = dict[tuple, Candle]()
 
@@ -35,7 +35,7 @@ class Datafeed(Connector):
 
         symbols = str.join(", ", Config.symbols)
         Log.info(f"Retrieving Polymarket token IDs for: [{symbols}]")
-        symbols, tokens = await self._map_pmarket(Config.symbols, Config.polyevents)
+        symbols, tokens = await self._map_pmarket(Config.symbols, Config.timeframes)
         self.symbols.update(symbols), self.tokens.update(tokens)
         tokens_str = str.join("\n", [f" => {key}: {id}" for key, id in self.tokens.items()])
         Log.success("Retrieved Polymarket token IDs...\n" + tokens_str)
@@ -51,6 +51,7 @@ class Datafeed(Connector):
     def on_tick(self, tick: Tick):
         
         candles: Dict[tuple, Candle] = None
+        tf: TimeFrame = None
 
         key = (tick.venue, tick.symbol)
         ticks = self.history["tick"]
@@ -61,7 +62,7 @@ class Datafeed(Connector):
         for tf, candles in self._candle.items():
             candle: Candle = candles.get(key, None)
             if candle is None:
-                candle = Candle(Timedelta(tf), *key)
+                candle = Candle(tf, *key)
                 candles[key] = candle
             candles[key].on_tick(tick)
     
@@ -69,13 +70,15 @@ class Datafeed(Connector):
     async def on_freq(self):
 
         candles: Dict[tuple, Candle] = None
-        next = Timestamp.utcnow().floor(self.FREQ_CAND)
-        sleep = self.FREQ_CAND.total_seconds() / 10
+        tf: TimeFrame = None
+
+        next = Timestamp.utcnow().floor(self.FREQ_MIN)
+        sleep = self.FREQ_MIN.total_seconds() / 10
         while True:
             await asyncio.sleep(sleep)
             now = Timestamp.utcnow()
             if (now < next): continue
-            next = now.floor(self.FREQ_CAND)
+            next = now.floor(self.FREQ_MIN)
 
             for tf, candles in self._candle.items():
                 for key, candle in candles.items():

@@ -3,6 +3,9 @@ import os, sys
 from loguru import logger as Log
 from typing import List, NamedTuple
 from configparser import ConfigParser
+from pandas import Timedelta
+from typing import Any
+from enum import Enum
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -23,6 +26,24 @@ Log.add(sys.stdout, format = f"[{LOG_FORMAT}] {{message}}", **args)
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss.SSS!UTC} | %s | {level}" % loc_format
 Log.add(LOG_FILENAME, format = f"[{LOG_FORMAT}] {{message}}", **args)
 
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+class TimeFrame(Enum):
+    _UNITS_H = [1, 2, 3, 4, 6, 8, 12]
+    _UNITS_M = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30]
+    S1, S2, S3, S4, S5, S6, S8, S10, S12, S15, S20, S30 \
+          = [Timedelta(seconds = n) for n in _UNITS_M]
+    M1, M2, M3, M4, M5, M6, M8, M10, M12, M15, M20, M30 \
+          = [Timedelta(minutes = n) for n in _UNITS_M]
+    H1, H2, H3, H4, H6, H8, H12 \
+          = [Timedelta(hours = n) for n in _UNITS_H]
+    D1, W1 = Timedelta(days = 1), Timedelta(weeks = 1)
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def invert(cls, tf: Enum): return tf.name[1 :] + tf.name[0].lower()
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def from_array(cls, tfs: List[str]): return [cls[tf] for tf in tfs]
+
 #▄▄▄▄▄▄▄▄▄▄▄
 class Config:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -33,6 +54,7 @@ class Config:
     """STRATEGY"""
     symbols: List[str] = CONFIG["STRATEGY"]["symbols"].split(" ")
     polyevents: List[str] = CONFIG["STRATEGY"]["polyevents"].split(" ")
+    timeframes: List[TimeFrame] = TimeFrame.from_array(polyevents)
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████

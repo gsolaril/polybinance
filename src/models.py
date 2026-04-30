@@ -4,7 +4,7 @@ from pandas import Timedelta, Timestamp
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List
 from urllib.parse import urlencode
-from src.utils import Config
+from src.utils import Config, TimeFrame
 from src.base import Venue
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -121,7 +121,7 @@ class Tick:
 #▄▄▄▄▄▄▄▄▄
 @dataclass
 class Candle:
-    tf: Timedelta; venue: Venue; symbol: str; volume: int = None; 
+    tf: TimeFrame; venue: Venue; symbol: str; volume: int = None; 
     oa: float = None; ha: float = None; la: float = None; ca: float = None
     ob: float = None; hb: float = None; lb: float = None; cb: float = None
     time: Timestamp = None
@@ -134,16 +134,14 @@ class Candle:
         return {key: self.__getattribute__(key) for key in order.split(" ")}
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __post_init__(self):
-        if isinstance(self.tf, str):
-            self.tf = Timedelta(self.tf)
         if self.time is None:
             self.time = Timestamp.utcnow()
-        self.time = self.time.floor(self.tf)
+        self.time = self.time.floor(self.tf.value)
         if (self.ha is None): self.ha = - numpy.inf
         if (self.la is None): self.la = + numpy.inf
         if (self.hb is None): self.hb = - numpy.inf
         if (self.lb is None): self.lb = + numpy.inf
-        self._time_close = self.time + self.tf
+        self._time_close = self.time + self.tf.value
         if not self.volume: self.volume = 0
         self._closed = False
 
