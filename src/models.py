@@ -134,31 +134,41 @@ class Candle:
         return {key: self.__getattribute__(key) for key in order.split(" ")}
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __post_init__(self):
-        if not isinstance(self.tf, Timedelta): self.tf = Timedelta(self.tf)
-        if self.time is None: self.time = Timestamp.utcnow().floor(self.tf)
+        if isinstance(self.tf, str):
+            self.tf = Timedelta(self.tf)
+        if self.time is None:
+            self.time = Timestamp.utcnow()
+        self.time = self.time.floor(self.tf)
         if (self.ha is None): self.ha = - numpy.inf
         if (self.la is None): self.la = + numpy.inf
         if (self.hb is None): self.hb = - numpy.inf
         if (self.lb is None): self.lb = + numpy.inf
+        self._time_close = self.time + self.tf
         if not self.volume: self.volume = 0
-        self.closed = False
+        self._closed = False
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_tick(self, tick: Tick):
         if (tick.time < self.time): return
-        if (tick.time > self.time + self.tf):
-            self.closed = True
-        if self.closed: return
+        if self.closed_at(tick.time): return
         if (tick.venue != self.venue): return
         if (tick.symbol != self.symbol): return
-        if (self.oa is None): self.oa = tick.pa
-        if (self.ob is None): self.ob = tick.pb
-        if (tick.pa > self.ha): self.ha = tick.pa
-        if (tick.pa < self.la): self.la = tick.pa
-        if (tick.pb > self.hb): self.hb = tick.pb
-        if (tick.pb < self.lb): self.lb = tick.pb
-        self.ca, self.cb = tick.pa, tick.pb
-        self.volume = self.volume + 1
+        if not tick.error:
+            self.volume += 1
+            if (self.oa is None): self.oa = tick.pa
+            if (self.ob is None): self.ob = tick.pb
+            if (tick.pa > self.ha): self.ha = tick.pa
+            if (tick.pa < self.la): self.la = tick.pa
+            if (tick.pb > self.hb): self.hb = tick.pb
+            if (tick.pb < self.lb): self.lb = tick.pb
+            self.ca, self.cb = tick.pa, tick.pb
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def closed_at(self, time: Timestamp):
+        if self._closed: return True
+        if (self._time_close < time):
+            self._closed = True
+        return self._closed
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████

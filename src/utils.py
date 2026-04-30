@@ -13,7 +13,7 @@ CONFIG = ConfigParser()
 CONFIG.read("config.ini")
 
 Log.remove(0)
-LOG_FILENAME = "logs/{time:YYYYMMDD_HHmm}.log"
+LOG_FILENAME = "logs/{time:YYYYMMDD_HHmm!UTC}.log"
 args = {"backtrace": False, "level": "DEBUG", "colorize": True, "serialize": False}
 loc_format = "{module}.{function} @ {name} L{line}"
 

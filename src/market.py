@@ -1,8 +1,8 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 import asyncio, json
-from pandas import Timedelta
 from collections import deque
-from typing import Any, Callable, Dict, List, Optional
+from pandas import Timestamp, Timedelta
+from typing import Any, Callable, Dict, List
 from aiohttp import ClientSession, WSMsgType
 from py_clob_client.client import ClobClient
 from py_clob_client.client import OrderArgs
@@ -15,7 +15,8 @@ from src.utils import Config, Log
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class Datafeed(Connector):
 
-    MAX_ENTRIES = 500000
+    FREQ_CAND = Timedelta(seconds = 1)
+    QUEUE = deque[Any](maxlen = 500000)
     STREAM_KEY = {Venue.BINANCE: "usdt@bookTicker", Venue.PMARKET: "book"}
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, callbacks: List[Callable]):
@@ -38,46 +39,64 @@ class Datafeed(Connector):
         self.symbols.update(symbols), self.tokens.update(tokens)
         tokens_str = str.join("\n", [f" => {key}: {id}" for key, id in self.tokens.items()])
         Log.success("Retrieved Polymarket token IDs...\n" + tokens_str)
-        try:
-            await asyncio.gather(
-                asyncio.create_task(self.connect(self._callbacks, Venue.BINANCE)),
-                asyncio.create_task(self.connect(self._callbacks, Venue.PMARKET)),
-            )
+        try: await asyncio.gather(
+            asyncio.create_task(self.connect(self._callbacks, Venue.BINANCE)),
+            asyncio.create_task(self.connect(self._callbacks, Venue.PMARKET)),
+            asyncio.create_task(self.on_freq()), return_exceptions = False,
+        )
         except KeyboardInterrupt: Log.success("Exiting...")
         except Exception as EXC: Log.exception(EXC)
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def update(self, tick: Tick):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def on_tick(self, tick: Tick):
         
-        empty = deque[Any](maxlen = self.MAX_ENTRIES)
         candles: Dict[tuple, Candle] = None
+
         key = (tick.venue, tick.symbol)
-        if key not in self.history["tick"]:
-            self.history["tick"][key] = empty.copy()
-        self.history["tick"][key].append(tick.__dict__)
+        ticks = self.history["tick"]
+        if key not in ticks:
+            ticks[key] = self.QUEUE.copy()
+        ticks[key].append(tick.__dict__)
 
         for tf, candles in self._candle.items():
-
-            if key not in candles:
-                candles[key] = Candle(Timedelta(tf), *key)
-        
+            candle: Candle = candles.get(key, None)
+            if candle is None:
+                candle = Candle(Timedelta(tf), *key)
+                candles[key] = candle
             candles[key].on_tick(tick)
-            if candles[key].closed:
-                if key not in self.history[tf]:
-                    self.history[tf][key] = empty.copy()
-                queue = self.history[tf][key]
-                queue.append(candles[key].__dict__)
-                candles[key] = Candle(Timedelta(tf), *key)
-                candles[key].on_tick(tick)
+    
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def on_freq(self):
 
+        candles: Dict[tuple, Candle] = None
+        next = Timestamp.utcnow().floor(self.FREQ_CAND)
+        sleep = self.FREQ_CAND.total_seconds() / 10
+        while True:
+            await asyncio.sleep(sleep)
+            now = Timestamp.utcnow()
+            if (now < next): continue
+            next = now.floor(self.FREQ_CAND)
+
+            for tf, candles in self._candle.items():
+                for key, candle in candles.items():
+                    if not candle.closed_at(now): continue
+                    if key not in self.history[tf]:
+                        self.history[tf][key] = self.QUEUE.copy()
+                    self.history[tf][key].append(candle.__dict__)
+                    self._candle[tf][key] = Candle(tf, *key)
+                        
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def connect(self, tasks: List[Callable], venue: Venue):
 
-        if (venue == Venue.BINANCE): stream_json = {"method": "SUBSCRIBE", "id": 1,
-            "params": [S.lower() + self.STREAM_KEY[Venue.BINANCE] for S in Config.symbols]}
+        key = self.STREAM_KEY[venue]
+        if (venue == Venue.BINANCE):
+            streams = [S.lower() + key for S in Config.symbols]
+            stream_json = {"method": "SUBSCRIBE", "id": 1}
+            stream_json["params"] = streams
 
-        elif (venue == Venue.PMARKET): stream_json = {"type": "subscribe",
-            "channels": [self.STREAM_KEY[Venue.PMARKET]], "assets_ids": [*self.tokens.keys()]}
+        elif (venue == Venue.PMARKET):
+            stream_json = {"type": "subscribe", "channels": [key]}
+            stream_json["assets_ids"] = list[str](self.tokens)
             
         async with ClientSession() as session:
             args = {"url": self.URL_WS[venue], "heartbeat": 5}
@@ -100,9 +119,11 @@ class Datafeed(Connector):
                             if tick is None: continue
                             if (venue == Venue.PMARKET):
                                 tick.symbol = self.tokens[tick.symbol]
-                            asyncio.create_task(self.update(tick))
+                            self.on_tick(tick)
                             for task in tasks:
-                                asyncio.create_task(task(tick))
+                                result = task(tick)
+                                if asyncio.iscoroutine(result):
+                                    asyncio.create_task(result)
 
                     elif (message.type == WSMsgType.ERROR):
                         Log.exception(f"{venue.value} WS error:", WS.exception()); break
@@ -120,8 +141,8 @@ class Executor(Connector):
     }
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, datafeed: Datafeed):
-        self._clob: Optional[ClobClient] = None
         self._tokens = datafeed.symbols
+        self._clob: ClobClient = None
     #▄▄▄▄▄▄▄▄▄▄
     @property#█▄▄▄
     def clob(self):
