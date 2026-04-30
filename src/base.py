@@ -120,7 +120,7 @@ class Connector:
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 if (__name__ == "__main__"):
-    polyevents = TimeFrame.from_array(["S1", "M1", "M5", "M15", "M30", "H1", "H4", "D1"])
+    timeframes = TimeFrame.from_array(["S1", "M1", "M5", "M15", "M30", "H1", "H4", "D1"])
     symbols = ["BTC", "ETH", "SOL", "XRP", "DOGE", "DOT", "ADA", "LINK", "BCH", "LTC"]
-    stoe, etos = asyncio.run(Connector._map_pmarket(symbols, [*polyevents]))
+    stoe, etos = asyncio.run(Connector._map_pmarket(symbols, timeframes))
     print(stoe), print(etos)

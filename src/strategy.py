@@ -3,7 +3,7 @@ import asyncio
 from dataclasses import dataclass
 from asyncio import CancelledError
 from typing import Any, Callable, ClassVar, Dict, List
-from pandas import DataFrame, Timedelta, Timestamp
+from pandas import DataFrame, Timestamp
 from src.models import Order, Tick, Candle
 from src.market import Datafeed, Executor
 from src.utils import Log, TimeFrame
@@ -14,7 +14,7 @@ from src.utils import Log, TimeFrame
 class On:
 
     callbacks = list[Callable]()
-    _cron_freqs = dict[Callable, Timedelta]()
+    _cron_freqs = dict[Callable, TimeFrame]()
     _cron_tasks: ClassVar[List[asyncio.Task]] = []
     
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -60,7 +60,7 @@ class On:
     def schedule(cls, method: Callable):
         
         async def loop():
-            freq = cls._cron_freqs[method]
+            freq = cls._cron_freqs[method].value
             next = Timestamp.utcnow().ceil(freq)
             while True:
                 until_next = next - Timestamp.utcnow()
@@ -68,7 +68,7 @@ class On:
                 if (wait > 0):
                     await asyncio.sleep(wait)
                     continue
-                freq = cls._cron_freqs[method]
+                freq = cls._cron_freqs[method].value
                 next = Timestamp.utcnow().ceil(freq)
 
                 try: await method()
@@ -86,7 +86,7 @@ class Strategy:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self):
         self._start = Timestamp.utcnow()
-        self.cron = dict[Callable, Timedelta]()
+        self.cron = dict[Callable, TimeFrame]()
         self.orders = dict[str, Dict[str, Any]]()
         self.datafeed, self.executor = None, None
         self.data = None
@@ -95,7 +95,7 @@ class Strategy:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def setup(self): ...
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def add_cron(self, method: Callable, freq: Timedelta):
+    def add_cron(self, method: Callable, freq: TimeFrame):
         self.cron[method] = freq
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def link(self, datafeed: Datafeed, executor: Executor):

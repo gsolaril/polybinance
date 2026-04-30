@@ -44,6 +44,8 @@ class TimeFrame(Enum):
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def from_array(cls, tfs: List[str]): return [cls[tf] for tf in tfs]
 
+polyevents = CONFIG["STRATEGY"]["polyevents"].split(" ")
+
 #▄▄▄▄▄▄▄▄▄▄▄
 class Config:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -53,7 +55,6 @@ class Config:
     auth_pmarket: Auth = Auth(CONFIG["POLYMARKET"]["api_key"], CONFIG["POLYMARKET"]["secret"])
     """STRATEGY"""
     symbols: List[str] = CONFIG["STRATEGY"]["symbols"].split(" ")
-    polyevents: List[str] = CONFIG["STRATEGY"]["polyevents"].split(" ")
     timeframes: List[TimeFrame] = TimeFrame.from_array(polyevents)
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
