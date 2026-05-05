@@ -7,7 +7,7 @@ from aiohttp import ClientSession, WSMsgType
 from py_clob_client.client import ClobClient
 from py_clob_client.client import OrderArgs
 from src.base import Connector, Venue
-from src.models import Candle, Order, Tick
+from src.models import Candle, Order, Tick, Bundle
 from src.utils import Config, Log, TimeFrame
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -15,9 +15,10 @@ from src.utils import Config, Log, TimeFrame
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class Datafeed(Connector):
 
-    QUEUE = deque[Any](maxlen = 500000)
     FREQ_MIN: Timedelta = min(TimeFrame._value2member_map_)
     STREAM_KEY = {Venue.BINANCE: "usdt@bookTicker", Venue.PMARKET: "book"}
+    MAX_QUEUE_LENGTH = int(TimeFrame.D1.value / TimeFrame.S1.value) * 15
+    QUEUE = deque[Any](maxlen = MAX_QUEUE_LENGTH)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, callbacks: List[Callable]):
 
@@ -25,10 +26,7 @@ class Datafeed(Connector):
         self.tokens = dict[str, Any]()
         self.symbols = dict[str, Any]()
         self._candle = dict[str, Candle]()
-        self.history = {"tick": dict[tuple, deque]()}
-        for tf in [TimeFrame.S1, *Config.timeframes]:
-            self.history[tf] = dict[tuple, deque]()
-            self._candle[tf] = dict[tuple, Candle]()
+        self.data = Bundle(self.MAX_QUEUE_LENGTH)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def run(self):
@@ -46,31 +44,9 @@ class Datafeed(Connector):
         )
         except KeyboardInterrupt: Log.success("Exiting...")
         except Exception as EXC: Log.exception(EXC)
-
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def on_tick(self, tick: Tick):
-        
-        candles: Dict[tuple, Candle] = None
-        tf: TimeFrame = None
-
-        key = (tick.venue, tick.symbol)
-        ticks = self.history["tick"]
-        if key not in ticks:
-            ticks[key] = self.QUEUE.copy()
-        ticks[key].append(tick.__dict__)
-
-        for tf, candles in self._candle.items():
-            candle: Candle = candles.get(key, None)
-            if candle is None:
-                candle = Candle(tf, *key)
-                candles[key] = candle
-            candles[key].on_tick(tick)
     
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_freq(self):
-
-        candles: Dict[tuple, Candle] = None
-        tf: TimeFrame = None
 
         next = Timestamp.utcnow().floor(self.FREQ_MIN)
         sleep = self.FREQ_MIN.total_seconds() / 10
@@ -79,14 +55,7 @@ class Datafeed(Connector):
             now = Timestamp.utcnow()
             if (now < next): continue
             next = now.floor(self.FREQ_MIN)
-
-            for tf, candles in self._candle.items():
-                for key, candle in candles.items():
-                    if not candle.closed_at(now): continue
-                    if key not in self.history[tf]:
-                        self.history[tf][key] = self.QUEUE.copy()
-                    self.history[tf][key].append(candle.__dict__)
-                    self._candle[tf][key] = Candle(tf, *key)
+            self.data.on_freq()
                         
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def connect(self, tasks: List[Callable], venue: Venue):
@@ -122,7 +91,7 @@ class Datafeed(Connector):
                             if tick is None: continue
                             if (venue == Venue.PMARKET):
                                 tick.symbol = self.tokens[tick.symbol]
-                            self.on_tick(tick)
+                            self.data.on_tick(tick)
                             for task in tasks:
                                 result = task(tick)
                                 if asyncio.iscoroutine(result):

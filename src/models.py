@@ -1,11 +1,12 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 import numpy, hashlib, hmac
-from pandas import Timedelta, Timestamp
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List
+from collections import defaultdict, deque
+from typing import Any, Dict, List, Callable
+from pandas import Series, DataFrame, Timestamp
 from urllib.parse import urlencode
-from src.utils import Config, TimeFrame
-from src.base import Venue
+from utils import Config, TimeFrame
+from base import Venue
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -160,16 +161,107 @@ class Candle:
             if (tick.pb > self.hb): self.hb = tick.pb
             if (tick.pb < self.lb): self.lb = tick.pb
             self.ca, self.cb = tick.pa, tick.pb
+    
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def on_candle(self, candle: "Candle"):
+        if (candle.time < self.time): return
+        if (candle.venue != self.venue): return
+        if (candle.symbol != self.symbol): return
+        if (candle._time_close > self._time_close): return
+        if not candle._closed:
+            self.volume += candle.volume
+            if (self.oa is None): self.oa = candle.oa
+            if (self.ob is None): self.ob = candle.ob
+            if (candle.ha > self.ha): self.ha = candle.ha
+            if (candle.la < self.la): self.la = candle.la
+            if (candle.hb > self.hb): self.hb = candle.hb
+            if (candle.lb < self.lb): self.lb = candle.lb
+            self.ca, self.cb = candle.ca, candle.cb
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def closed_at(self, time: Timestamp):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def closed_at(self, time: Timestamp = None):
+        if (time is None): time = Timestamp.utcnow()
         if self._closed: return True
         if (self._time_close < time):
             self._closed = True
         return self._closed
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+#███████████████████████████████████████████████████████████████████████████████████████████████████████████
+#▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+class Bundle(defaultdict[TimeFrame, defaultdict[Any, deque]]):
+
+    MAX_N_TICKS, MAX_N_CANDLES = 10_000_000, 500_000
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __init__(self, fkey: Callable = None,
+        n_ticks: int = None, n_candles: int = None):
+        
+        super().__init__(defaultdict, defaultdict)
+        if n_ticks is None: n_ticks = self.MAX_N_TICKS
+        if n_candles is None: n_candles = self.MAX_N_CANDLES
+        self._len_ticks, self._len_candles = n_ticks, n_candles
+        self._fkey, self._current = fkey, dict[Any, Candle]()
+        self._ticks = self._new_queue(n_ticks)
+        for tf in TimeFrame._value2member_map_:
+            self[tf] = defaultdict[Any, deque](
+                lambda: self._new_queue(n_candles))
+
+    #▄▄▄▄▄▄▄▄▄▄
+    @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def symbols(self): return sorted(self._current)
+    #▄▄▄▄▄▄▄▄▄▄
+    @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def ticks(self): return self._ticks.copy()
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def _new_queue(self, len: int):
+        len = min(len, self.MAX_N_TICKS)
+        return deque[Candle](maxlen = len)
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def on_tick(self, tick: Tick):
+
+        if self._fkey is not None: key = self._fkey(tick)
+        else: key = (tick.venue, tick.symbol)
+
+        if key not in self._current:
+            self._current[key] = Candle(TimeFrame.S1, *key)
+        
+        self._current[key].on_tick(tick)
+        self._ticks.append(tick.__dict__)
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def on_freq(self):
+
+        tf_upd, tf_opt = TimeFrame.S1, TimeFrame.D1
+        for symbol, candle in self._current.items():
+            if not candle.closed_at(): continue
+            self._current.pop(symbol)
+            self[tf_upd][symbol].append(candle)
+            self._current[symbol] = Candle(tf_upd, *symbol)
+        
+        now = Timestamp.utcnow()
+        for tf_upd, tf_opt in TimeFrame.updatable(now):
+            n_candles = tf_upd.value // tf_opt.value
+            time: Timestamp = now - tf_upd.value
+            for key in self.symbols:
+                candle_large = Candle(tf_upd, *key, time = time)
+                candles_small = self[tf_opt][key][- n_candles :]
+                for c in candles_small: candle_large.on_candle(c)
+                self[tf_upd][key].append(candle_large)
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __str__(self): raise NotImplementedError
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-if (__name__ == "__main__"): pass
+if (__name__ == "__main__"):
+    bundle = Bundle(1000)
+    print(bundle)
+
+    ## TODO: Create random ticks for multiple symbols, to create a test dataset. Then:
+    # - Resample the dataset into an OHLCV dataset with Pandas, using all TimeFrames...
+    # - Create a "Bundle" object and iterate over the Tick objects to create the Candles.
+    # - Compare both resulting arrays. They should be identical.
