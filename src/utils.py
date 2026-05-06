@@ -5,6 +5,7 @@ from configparser import ConfigParser
 from typing import Any, List, NamedTuple
 from pandas import Timestamp, Timedelta
 from enum import Enum, EnumMeta
+from sympy import divisors
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -25,8 +26,6 @@ Log.add(LOG_FILENAME, format = f"[{LOG_FORMAT}] {{message}}", **args)
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class _Meta(EnumMeta):
-    _UNITS_H = [1, 2, 3, 4, 6, 8, 12, 24]
-    _UNITS_M = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30]
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(cls, name, bases, dct):
         super().__init__(name, bases, dct)
@@ -42,12 +41,12 @@ class _Meta(EnumMeta):
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class TimeFrame(Enum, metaclass = _Meta):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    S1, S2, S3, S4, S5, S6, S8, S10, S12, S15, S20, S30 \
-          = [Timedelta(seconds = n) for n in _Meta._UNITS_M]
-    M1, M2, M3, M4, M5, M6, M8, M10, M12, M15, M20, M30 \
-          = [Timedelta(minutes = n) for n in _Meta._UNITS_M]
+    S1, S2, S3, S4, S5, S6, S10, S12, S15, S20, S30 \
+          = [Timedelta(seconds = n) for n in divisors(60)[: -1]]
+    M1, M2, M3, M4, M5, M6, M10, M12, M15, M20, M30 \
+          = [Timedelta(minutes = n) for n in divisors(60)[: -1]]
     H1, H2, H3, H4, H6, H8, H12, D1 \
-          = [Timedelta(hours = n) for n in _Meta._UNITS_H]
+          = [Timedelta(hours = n) for n in divisors(24)]
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __eq__(self, other: Enum): return (self.value == other.value)
     def __ne__(self, other: Enum): return (self.value != other.value)
@@ -75,12 +74,12 @@ class TimeFrame(Enum, metaclass = _Meta):
         for tf_div in cls._DIVISORS[tf_max]:
             if (tf_div == TimeFrame.S1): continue
             yield tf_div, cls._DIVISORS[tf_div][-1]
-        yield tf_max, cls._DIVISORS[tf_max][-1]
+        if (tf_max != TimeFrame.S1):
+            yield tf_max, cls._DIVISORS[tf_max][-1]
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 polyevents = CONFIG["STRATEGY"]["polyevents"].split(" ")
-
 #▄▄▄▄▄▄▄▄▄▄▄
 class Config:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -91,7 +90,6 @@ class Config:
     """STRATEGY"""
     symbols: List[str] = CONFIG["STRATEGY"]["symbols"].split(" ")
     timeframes: List[TimeFrame] = TimeFrame.from_array(polyevents)
-
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -103,4 +101,4 @@ if (__name__ == "__main__"):
     #Log.debug("This is a debug message.")
     #Log.trace("This is a trace message.")
     #Log.info(f"This is an info message. CONFIG:\n{CONFIG}")
-    t = Timestamp.utcnow().ceil("3h")
+    for tf in TimeFrame: print(">>", tf.name, ":", tf.value)

@@ -1,3 +1,5 @@
+# Marker file so `import src.*` works when repo root is on sys.path.
+
 """
 Package marker for project modules under `src/`.
 
