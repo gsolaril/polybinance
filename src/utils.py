@@ -57,6 +57,7 @@ class TimeFrame(Enum, metaclass = _Meta):
     def __hash__(self): return hash(self.value)
     def __repr__(self): return self.name
     def __str__(self): return self.name
+    def __len__(self): return 30
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def invert(cls, tf: "TimeFrame"): return tf.name[1 :] + tf.name[0].lower()

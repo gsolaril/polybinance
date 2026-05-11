@@ -40,25 +40,29 @@ class BundleTest:
         symbols = [symbols[n * 4 : (n + 1) * 4] for n in range(n_symbols)]
         self.symbols = [str.join("", sym) for sym in symbols]
 
-        Log.info(f"Generating {self.n_ticks} ticks for symbols: {self.symbols}...")
+        end = self.start + self.n_ticks * self.avg_tstep
+        verbose = f"Generating...\n >> Ticks: {self.n_ticks}, Symbols: {self.symbols}...\n "
+        verbose += f">> Approximate timeline: {self.start:%Y-%m-%d} - {end:%Y-%m-%d %H:%M:%S}..."
         self.files = dict.fromkeys(["ticks_p", "candles_p", "ticks_b", "candles_b"])
         self.bundle = None
+        Log.info(verbose)
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def generate(self, min_pmag: float = 0.75, max_pmag: float = 3.25, digits: int = 7):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def generate(self, min_pmag: float = 0.75, max_pmag: float = 4, digits: int = 7):
 
-        data = {}
+        dif_pmag = max_pmag - min_pmag
         seed = numpy.random.random(size = self.n_symbols)
-        p_seed = numpy.pow(10.0, min_pmag + max_pmag * seed)
+        p_seed = numpy.pow(10.0, min_pmag + dif_pmag * seed)
         p_incr = 10.0 ** numpy.ceil(numpy.log10(p_seed) - digits)
         p_seed = numpy.floor(p_seed / p_incr) * p_incr
 
+        data = dict()
         iterator = tqdm(self.symbols, ncols = 86)
         for n, symbol in enumerate(iterator):
             seed = numpy.random.random(size = (self.n_ticks, 2))
             df = DataFrame(seed, columns = ["pb", "spread"])
             seed = numpy.random.random(size = self.n_ticks)
-            df["time"] = (seed + 0.5) * self.avg_tstep
+            df["time"] = self.avg_tstep * (seed + 0.5)
             df.index = df.pop("time").cumsum() + self.start
             df.index = df.index.floor("1ms")
             df["pb"] = numpy.sign(2 * df["pb"] - 1)
@@ -120,22 +124,25 @@ class BundleTest:
         if df is None:
             df = read_pickle(CWD + os.path.sep + self.files["ticks_p"])
 
-        t_prev = t_next = None
-        iterator = df.reset_index().iterrows()
-        self.bundle = Bundle(nt = self.n_ticks * self.n_symbols, nc = self.n_ticks // self.TPS)
-        for _, row in tqdm(iterator, ncols = 86):
-            # `row` already includes `venue` from the MultiIndex
+        t_1s_curr = t_1s_prev = None
+        iterator = tqdm(
+            iterable = df.reset_index().iterrows(),
+            total = df.shape[0], ncols = 86)
+
+        self.bundle = Bundle(nc = self.n_ticks,
+            nt = self.n_symbols * self.n_ticks)
+
+        for _, row in iterator:
             tick = Tick(**row, qa = 1.0, qb = 1.0)
-            ts_sec = tick.time.floor("1s")
-            t_next = ts_sec - Timedelta("1d")
-            if (t_prev is None):
-                t_prev = t_next
-            if (t_next > t_prev):
+            t_1s_curr = tick.time.floor("1s")
+            if (t_1s_prev is None):
+                t_1s_prev = t_1s_curr
+            if (t_1s_curr > t_1s_prev):
                 assert tick.time is not None
-                try: self.bundle.on_freq(ts_sec)
+                try: self.bundle.on_freq(t_1s_curr)
                 except Exception as EXC:
                     Log.exception(EXC)
-                t_prev = t_next
+                t_1s_prev = t_1s_curr
             self.bundle.on_tick(tick)
 
         ticks = self.bundle.get(Tick)
@@ -169,9 +176,9 @@ class BundleTest:
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 if (__name__ == "__main__"):
 
-    test = BundleTest(n_ticks = 100000, ticks_per_second = 1)
+    test = BundleTest(n_symbols = 1, n_ticks = 100000, ticks_per_second = 2)
     Log.info("\nPart 1: Generating dataset...")
-    df = test.generate()
+    df = test.generate(min_pmag = 5, max_pmag = 5, digits = 5)
 
     Log.info("\nPart 2: Resampling dataset with Pandas...")
     df_res = test.on_pandas(df)

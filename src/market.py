@@ -1,14 +1,13 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 import asyncio, json
 from collections import deque
+from typing import Any, Callable, List
 from pandas import Timestamp, Timedelta
-from typing import Any, Callable, Dict, List
-from aiohttp import ClientSession, WSMsgType
-from py_clob_client.client import ClobClient
-from py_clob_client.client import OrderArgs
+from aiohttp import ClientSession, WSMsgType, WSMessage
+from py_clob_client.client import ClobClient, OrderArgs
 from src.base import Connector, Venue
-from src.models import Candle, Order, Tick, Bundle
-from src.utils import Config, Log, TimeFrame
+from src.models import Order, Tick, Bundle
+from src.utils import Config, TimeFrame, Log
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -18,15 +17,22 @@ class Datafeed(Connector):
     FREQ_MIN: Timedelta = min(TimeFrame._value2member_map_)
     STREAM_KEY = {Venue.BINANCE: "usdt@bookTicker", Venue.PMARKET: "book"}
     MAX_QUEUE_LENGTH = int(TimeFrame.D1.value / TimeFrame.S1.value) * 15
-    QUEUE = deque[Any](maxlen = MAX_QUEUE_LENGTH)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, callbacks: List[Callable]):
 
         self._callbacks = callbacks
         self.tokens = dict[str, Any]()
         self.symbols = dict[str, Any]()
-        self._candle = dict[str, Candle]()
-        self.data = Bundle(self.MAX_QUEUE_LENGTH)
+        self._bundle = Bundle(self.MAX_QUEUE_LENGTH)
+
+    #▄▄▄▄▄▄▄▄▄▄
+    @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def raw_ticks(self): return self._bundle._ticks
+    #▄▄▄▄▄▄▄▄▄▄
+    @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def raw_candles(self): return self._bundle._data_all
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def get_data(self, **kwargs): return self._bundle.get(**kwargs)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def run(self):
@@ -55,10 +61,30 @@ class Datafeed(Connector):
             now = Timestamp.utcnow()
             if (now < next): continue
             next = now.floor(self.FREQ_MIN)
-            self.data.on_freq()
-                        
+            self._bundle.on_freq(now)
+
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def connect(self, tasks: List[Callable], venue: Venue):
+    async def on_message(self, message: WSMessage, venue: Venue):
+
+        try: data = json.loads(message.data)
+        except json.JSONDecodeError as EXC:
+            Log.warning(f"{venue.value} non-JSON: \"{message.data}\"")
+            return
+
+        ticks = Tick.from_json(data, venue)
+        if not ticks: return
+        for tick in ticks:
+            if tick is None: return
+            if (venue == Venue.PMARKET):
+                tick.symbol = self.tokens[tick.symbol]
+            self._bundle.on_tick(tick)
+            for task in self._callbacks:
+                result = task(tick)
+                if asyncio.iscoroutine(result):
+                    asyncio.create_task(result)
+                        
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def connect(self, venue: Venue):
 
         key = self.STREAM_KEY[venue]
         if (venue == Venue.BINANCE):
@@ -80,23 +106,7 @@ class Datafeed(Connector):
                     
                 async for message in WS:
                     if (message.type == WSMsgType.TEXT):
-                        try: data = json.loads(message.data)
-                        except json.JSONDecodeError as EXC:
-                            Log.warning(f"{venue.value} non-JSON: \"{message.data}\"")
-                            continue
-
-                        ticks = Tick.from_json(data, venue)
-                        if not ticks: continue
-                        for tick in ticks:
-                            if tick is None: continue
-                            if (venue == Venue.PMARKET):
-                                tick.symbol = self.tokens[tick.symbol]
-                            self.data.on_tick(tick)
-                            for task in tasks:
-                                result = task(tick)
-                                if asyncio.iscoroutine(result):
-                                    asyncio.create_task(result)
-
+                        await self.on_message(message, venue)
                     elif (message.type == WSMsgType.ERROR):
                         Log.exception(f"{venue.value} WS error:", WS.exception()); break
                     else: Log.warning(f"{venue.value} closed. Check just in case"); break
