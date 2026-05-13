@@ -37,17 +37,14 @@ class TestBundle(TestCase):
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def test_basics(self):
-        self.assertEqual(len(self.bundle._tick_rec), 0)
-        self.assertEqual(len(self.bundle._tick_all), 0)
+        self.assertEqual(len(self.bundle._ticks), 0)
         self.assertEqual(len(self.bundle._current), 0)
-        self.assertEqual(len(self.bundle._cand_rec), len(TimeFrame))
-        self.assertEqual(len(self.bundle._cand_all), len(TimeFrame))
-        self.assertEqual(len(self.bundle._cand_rec[TimeFrame.S1]), 0)
-        self.assertEqual(len(self.bundle._cand_all[TimeFrame.S1]), 0)
+        self.assertEqual(len(self.bundle._cands), len(TimeFrame))
+        self.assertEqual(len(self.bundle._cands[TimeFrame.S1]), 0)
     
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def test_1_symbol_1_tf(self):
-        tf = TimeFrame.S12
+        tf = TimeFrame.H4
         ratio = tf.value // TimeFrame.S1.value
         to1s, tc1s = list(), list()
         o1s, h1s, l1s, c1s = list(), list(), list(), list()
@@ -73,61 +70,37 @@ class TestBundle(TestCase):
             c1s.append(price), h1s.append(h), l1s.append(l)
             self.bundle.on_freq(tc)
 
-        self.assertEqual(len(self.bundle._tick_all), 1)
-        self.assertEqual(len(self.bundle._tick_rec), 1)
-        symbols_rec = self.bundle._cand_rec[TimeFrame.S1]
-        symbols_all = self.bundle._cand_all[TimeFrame.S1]
-        self.assertEqual(len(symbols_rec), 1)
-        self.assertEqual(len(symbols_all), 1)
-        candles_rec = symbols_rec[key]
-        candles_all = symbols_all[key]
-        ticks_rec = self.bundle._tick_rec[key]
-        ticks_all = self.bundle._tick_all[key]
-        self.assertLessEqual(len(candles_rec), Bundle.BUFFER_SIZE)
-        self.assertEqual(len(candles_all), ratio)
-        self.assertEqual(len(ticks_rec), len(ticks))
-        self.assertEqual(len(ticks_all), len(ticks))
+        self.assertEqual(len(self.bundle._ticks), 1)
+        symbols = self.bundle._cands[TimeFrame.S1]
+        self.assertEqual(len(symbols), 1)
+        candles = symbols[key]
+        ticks = self.bundle._ticks[key]
+        self.assertEqual(len(candles), ratio)
+        self.assertEqual(len(ticks), len(ticks))
 
-        for n in range(1 - len(candles_rec), 0):
+        for n in range(1 - len(candles), 0):
             with self.subTest(n = n):
-                self.assertEqual(candles_rec[n].oa, o1s[n])
-                self.assertEqual(candles_rec[n].ha, h1s[n])
-                self.assertEqual(candles_rec[n].la, l1s[n])
-                self.assertEqual(candles_rec[n].ca, c1s[n])
-                self.assertEqual(candles_rec[n].time, to1s[n])
-                self.assertEqual(candles_rec[n].volume, len(price_diff))
-                self.assertEqual(candles_rec[n]._time_close, tc1s[n])
-                self.assertEqual(candles_all[n]["oa"], o1s[n])
-                self.assertEqual(candles_all[n]["ha"], h1s[n])
-                self.assertEqual(candles_all[n]["la"], l1s[n])
-                self.assertEqual(candles_all[n]["ca"], c1s[n])
-                self.assertEqual(candles_all[n]["time"], to1s[n])
-                self.assertEqual(candles_all[n]["volume"], len(price_diff))
+                self.assertEqual(candles[n].oa, o1s[n])
+                self.assertEqual(candles[n].ha, h1s[n])
+                self.assertEqual(candles[n].la, l1s[n])
+                self.assertEqual(candles[n].ca, c1s[n])
+                self.assertEqual(candles[n].time, to1s[n])
+                self.assertEqual(candles[n].volume, len(price_diff))
+                self.assertEqual(candles[n]._time_close, tc1s[n])
 
-        symbols_rec = self.bundle._cand_rec[tf]
-        symbols_all = self.bundle._cand_all[tf]
-        self.assertEqual(len(symbols_rec), 1)
-        self.assertEqual(len(symbols_all), 1)
-        candles_rec = symbols_rec[key]
-        candles_all = symbols_all[key]
-        self.assertLessEqual(len(candles_rec), Bundle.BUFFER_SIZE)
-        self.assertEqual(len(candles_all), 1)
-        candle_rec = candles_rec[-1]
-        candle_all = candles_all[-1]
+        symbols = self.bundle._cands[tf]
+        self.assertEqual(len(symbols), 1)
+        candles = symbols[key]
+        self.assertEqual(len(candles), 1)
+        candle = candles[-1]
 
-        self.assertEqual(candle_rec.oa, o1s[0])
-        self.assertEqual(candle_rec.ha, max(h1s))
-        self.assertEqual(candle_rec.la, min(l1s))
-        self.assertEqual(candle_rec.ca, c1s[-1])
-        self.assertEqual(candle_rec.time, to1s[0])
-        self.assertEqual(candle_rec.volume, len(price_diff) * ratio)
-        self.assertEqual(candle_rec._time_close, tc1s[-1])
-        self.assertEqual(candle_all["oa"], o1s[0])
-        self.assertEqual(candle_all["ha"], max(h1s))
-        self.assertEqual(candle_all["la"], min(l1s))
-        self.assertEqual(candle_all["ca"], c1s[-1])
-        self.assertEqual(candle_all["time"], to1s[0])
-        self.assertEqual(candle_all["volume"], len(price_diff) * ratio)
+        self.assertEqual(candle.oa, o1s[0])
+        self.assertEqual(candle.ha, max(h1s))
+        self.assertEqual(candle.la, min(l1s))
+        self.assertEqual(candle.ca, c1s[-1])
+        self.assertEqual(candle.time, to1s[0])
+        self.assertEqual(candle.volume, len(price_diff) * ratio)
+        self.assertEqual(candle._time_close, tc1s[-1])
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████

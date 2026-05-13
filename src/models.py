@@ -99,7 +99,8 @@ class Tick:
         data = data.get("data", None)
         if data is None: return None
         return cls(venue = Venue.BINANCE, symbol = data["s"][: -4],
-            time = Timestamp(int(data["E"]), unit = "ms", tz = "UTC"),
+            #time = Timestamp.utcfromtimestamp(int(data["E"]) / 1e3),
+            time = Timestamp.utcnow(), # TODO: account for secs of discrepancy from broker
             pa = data["a"], qa = data["A"], pb = data["b"], qb = data["B"])
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -114,7 +115,8 @@ class Tick:
         if not B: B = template.copy()
         A, B = A[-1], B[-1]
         tick = cls(venue = Venue.PMARKET, symbol = data.get("asset_id", None),
-            time = Timestamp(int(data["timestamp"]), unit = "ms", tz = "UTC"),
+            #time = Timestamp.utcfromtimestamp(int(data["timestamp"]) / 1e3),
+            time = Timestamp.utcnow(), # TODO: account for secs of discrepancy from broker
             pa = A["price"], qa = A["size"], pb = B["price"], qb = B["size"])
         return tick
     
@@ -229,20 +231,15 @@ class Bundle:
         if preload is None: preload = dict()
         self._current = dict[Any, Candle]()
 
-        self._cand_rec = dict()
-        self._tick_rec = defaultdict[Any, deque](lambda: self._queue(self._BT))
+        self._cands = dict()
+        self._ticks = defaultdict[Any, deque](lambda: self._queue(self._NT))
         for tf in TimeFrame:
-            self._cand_rec[tf] = defaultdict[Any, deque](lambda: self._queue(self._BC))
-
-        self._cand_all = dict()
-        self._tick_all = defaultdict[Any, deque](lambda: self._queue(self._NT))
-        for tf in TimeFrame:
-            self._cand_all[tf] = defaultdict[Any, deque](lambda: self._queue(self._NC))
+            self._cands[tf] = defaultdict[Any, deque](lambda: self._queue(self._NC))
 
         for tf, symbols in preload.items():
             symbols: dict[tuple, deque] = symbols
             for key, candles in symbols.items():
-                self._cand_all[tf][key] = candles.copy()
+                self._cands[tf][key] = candles.copy()
 
     #▄▄▄▄▄▄▄▄▄▄
     @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -273,28 +270,23 @@ class Bundle:
         key = (tick.venue, tick.symbol)
         if key not in self._current:
             self._current[key] = None
-            self._tick_rec[key] = self._queue(self._BT)
-            self._tick_all[key] = self._queue(self._NT)
+            self._ticks[key] = self._queue(self._NT)
             for tf in TimeFrame:
-                self._cand_rec[tf][key] = self._queue(self._BC)
-                self._cand_all[tf][key] = self._queue(self._NC)
+                self._cands[tf][key] = self._queue(self._NC)
 
         if self._current[key] is None:
             self._current[key] = Candle(TimeFrame.S1, *key, time = tick.time)
 
         self._current[key].on_tick(tick)
-        self._tick_rec[key].append(tick)
-        self._tick_all[key].append(tick)
+        self._ticks[key].append(tick)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_freq(self, time: Timestamp = None):
 
         tf_upd, tf_opt = TimeFrame.S1, TimeFrame.D1
         for key, candle in self._current.copy().items():
-            #self._current.pop(key)
             if candle is None: continue
-            self._cand_rec[tf_upd][key].append(candle)
-            self._cand_all[tf_upd][key].append(candle)
+            self._cands[tf_upd][key].append(candle)
             self._current[key] = None
 
         cpushed = dict()
@@ -307,12 +299,11 @@ class Bundle:
                 candle_upper = Candle(tf_upd, *key, time = time_candle)
                 candles_lower = list()
                 for n in range(- n_candles, 0):
-                    try: candle_lower = self._cand_rec[tf_opt][key][n]
+                    try: candle_lower = self._cands[tf_opt][key][n]
                     except IndexError: continue
                     candles_lower.append(candle_lower)
                     candle_upper.on_candle_lower(candle_lower)
-                self._cand_rec[tf_upd][key].append(candle_upper)
-                self._cand_all[tf_upd][key].append(candle_upper)
+                self._cands[tf_upd][key].append(candle_upper)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __repr__(self):
@@ -320,7 +311,7 @@ class Bundle:
         df = dict()
         df_lines = list[str]()
         keys = dict()
-        for tf, keys in self._cand_all.items():
+        for tf, keys in self._cands.items():
             df[tf] = dict()
             for key, candles in keys.items():
                 df[tf][key] = len(candles)
@@ -334,7 +325,7 @@ class Bundle:
             report_lines.append(f"  Time of last tick:  {self._tick_last.time:%H:%M:%S} ({self.since_tick_n} ago)")
             report_lines.append(f"  Time of first tick: {self._tick_first.time:%H:%M:%S} ({self.since_tick_1} ago)")
             df.columns = df.columns.rename(Tick.INDEX[: 2])
-            tcount = {key: len(values) for key, values in self._tick_all.items()}
+            tcount = {key: len(values) for key, values in self._ticks.items()}
             df.loc["*ticks"] = Series(tcount)
             df["*total"] = df.sum(axis = "columns")
             df = concat((df.iloc[-1:], df.iloc[:-1]))
@@ -357,24 +348,29 @@ class Bundle:
         if until is None:
             until = Timestamp.max.tz_localize("UTC")
         n = kwargs.get("n", self._NC)
-        since = kwargs.get("since", self._tick_first.time)
+        since = Timestamp.min.tz_localize("UTC")
+        since = getattr(self._tick_first, "time", since)
+        since: Timestamp = kwargs.get("since", since)
 
         if tf is Tick:
             index = Tick.INDEX.copy()
             gen = self.gen_ticks(symbol, until, since, n)
         else:
             index = Candle.INDEX.copy()
-            if not tf: tf = {*self._cand_rec.keys()}
+            if not tf: tf = {*self._cands.keys()}
             elif isinstance(tf, str): tf = {TimeFrame[tf]}
             elif isinstance(tf, TimeFrame): tf = {tf}
             gen = self.gen_candles(tf, symbol, until, since, n)
 
-        return DataFrame(gen).set_index(index).sort_index()
+        df = DataFrame(gen)
+        if not df.empty:
+            df = df.set_index(index)
+        return df.sort_index()
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def gen_candles(self, tfs: Set, symbols: Set, until: Timestamp, since: Timestamp, n: int):
 
-        for tf, dtf in dict.items(self._cand_all):
+        for tf, dtf in dict.items(self._cands):
             if tf not in tfs: continue
             for key, candles in dict.items(dtf):
                 if key not in symbols: continue
@@ -388,7 +384,7 @@ class Bundle:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def gen_ticks(self, symbols: Set, until: Timestamp, since: Timestamp, n: int):
 
-        for key, ticks in dict.items(self._tick_all):
+        for key, ticks in dict.items(self._ticks):
             if key not in symbols: continue
             ntmax = min(len(ticks), n)
             for nt in range(- ntmax, 0):

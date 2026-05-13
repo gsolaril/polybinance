@@ -25,15 +25,6 @@ class Datafeed(Connector):
         self.symbols = dict[str, Any]()
         self._bundle = Bundle(self.MAX_QUEUE_LENGTH)
 
-    #▄▄▄▄▄▄▄▄▄▄
-    @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def raw_ticks(self): return self._bundle._ticks
-    #▄▄▄▄▄▄▄▄▄▄
-    @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def raw_candles(self): return self._bundle._cand_all
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def get_data(self, **kwargs): return self._bundle.get(**kwargs)
-
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def run(self):
 
@@ -44,8 +35,8 @@ class Datafeed(Connector):
         tokens_str = str.join("\n", [f" => {key}: {id}" for key, id in self.tokens.items()])
         Log.success("Retrieved Polymarket token IDs...\n" + tokens_str)
         try: await asyncio.gather(
-            asyncio.create_task(self.connect(self._callbacks, Venue.BINANCE)),
-            asyncio.create_task(self.connect(self._callbacks, Venue.PMARKET)),
+            asyncio.create_task(self.connect(Venue.BINANCE)),
+            #asyncio.create_task(self.connect(Venue.PMARKET)),
             asyncio.create_task(self.on_freq()), return_exceptions = False,
         )
         except KeyboardInterrupt: Log.success("Exiting...")
@@ -54,14 +45,15 @@ class Datafeed(Connector):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_freq(self):
 
-        next = Timestamp.utcnow().floor(self.FREQ_MIN)
+        next = Timestamp.utcnow().ceil(self.FREQ_MIN)
         sleep = self.FREQ_MIN.total_seconds() / 10
         while True:
             await asyncio.sleep(sleep)
             now = Timestamp.utcnow()
             if (now < next): continue
-            next = now.floor(self.FREQ_MIN)
-            self._bundle.on_freq(now)
+            last = now.floor(self.FREQ_MIN)
+            next = now.ceil(self.FREQ_MIN)
+            self._bundle.on_freq(last)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_message(self, message: WSMessage, venue: Venue):
