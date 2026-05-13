@@ -30,7 +30,7 @@ class Datafeed(Connector):
     def raw_ticks(self): return self._bundle._ticks
     #▄▄▄▄▄▄▄▄▄▄
     @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def raw_candles(self): return self._bundle._data_all
+    def raw_candles(self): return self._bundle._cand_all
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def get_data(self, **kwargs): return self._bundle.get(**kwargs)
 

@@ -1,5 +1,5 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-import os, sys, numpy
+import os, sys, numpy, time
 from tqdm import tqdm
 from pathlib import Path
 from pandas import read_pickle
@@ -41,7 +41,7 @@ class BundleTest:
         self.symbols = [str.join("", sym) for sym in symbols]
 
         end = self.start + self.n_ticks * self.avg_tstep
-        verbose = f"Generating...\n >> Ticks: {self.n_ticks}, Symbols: {self.symbols}...\n "
+        verbose = f"Generating...\n => Ticks: {self.n_ticks}, Symbols: {self.symbols}...\n "
         verbose += f">> Approximate timeline: {self.start:%Y-%m-%d} - {end:%Y-%m-%d %H:%M:%S}..."
         self.files = dict.fromkeys(["ticks_p", "candles_p", "ticks_b", "candles_b"])
         self.bundle = None
@@ -61,8 +61,8 @@ class BundleTest:
         for n, symbol in enumerate(iterator):
             seed = numpy.random.random(size = (self.n_ticks, 2))
             df = DataFrame(seed, columns = ["pb", "spread"])
-            seed = numpy.random.random(size = self.n_ticks)
-            df["time"] = self.avg_tstep * (seed + 0.5)
+            seed = numpy.random.normal(0, 1, self.n_ticks)
+            df["time"] = self.avg_tstep * numpy.exp(seed) / 1.6
             df.index = df.pop("time").cumsum() + self.start
             df.index = df.index.floor("1ms")
             df["pb"] = numpy.sign(2 * df["pb"] - 1)
@@ -72,7 +72,7 @@ class BundleTest:
             df["spread"] = p_incr[n] * df["spread"].round()
             df["pa"] = df["pb"] + df.pop("spread")
             data[(Venue.BINANCE, symbol)] = df
-
+        
         df: DataFrame = concat(data)
         df.index = df.index.rename(Tick.INDEX)
         df_save = df.reset_index()
@@ -80,7 +80,7 @@ class BundleTest:
         df_save = df_save.set_index(Tick.INDEX).sort_index()
         self.files["ticks_p"] = f"{self.fn}_ticks_p.pickle"
         full_path = CWD + os.path.sep + self.files["ticks_p"]
-        verbose = "Saving Pandas' ticks to file \"{path}\"..."
+        verbose = "Saving Pandas' ticks to file...\n => \"{path}\"..."
         Log.warning(verbose.format(path = full_path))
         df_save.to_pickle(full_path)
         df = df.swaplevel().sort_index()
@@ -113,7 +113,7 @@ class BundleTest:
         res = res.set_index(index).sort_index()
         self.files["candles_p"] = f"{self.fn}_candles_p.pickle"
         full_path = CWD + os.path.sep + self.files["candles_p"]
-        verbose = "Saving Pandas' candles to file \"{path}\"..."
+        verbose = "Saving Pandas' candles to file...\n => \"{path}\"..."
         Log.warning(verbose.format(path = full_path))
         res.to_pickle(full_path)
         return res
@@ -152,7 +152,7 @@ class BundleTest:
         ticks = ticks.set_index(index).sort_index()
         self.files["ticks_b"] = f"{self.fn}_ticks_b.pickle"
         full_path = CWD + os.path.sep + self.files["ticks_b"]
-        verbose = "Saving Bundle's ticks to file \"{path}\"..."
+        verbose = "Saving Bundle's ticks to file...\n => \"{path}\"..."
         Log.warning(verbose.format(path = full_path))
         ticks.to_pickle(full_path)
         
@@ -164,7 +164,7 @@ class BundleTest:
         candles = candles.set_index(index).sort_index()
         self.files["candles_b"] = f"{self.fn}_candles_b.pickle"
         full_path = CWD + os.path.sep + self.files["candles_b"]
-        verbose = "Saving Bundle's candles to file \"{path}\"..."
+        verbose = "Saving Bundle's candles to file...\n => \"{path}\"..."
         Log.warning(verbose.format(path = full_path))
         candles.to_pickle(full_path)
 
@@ -176,14 +176,36 @@ class BundleTest:
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 if (__name__ == "__main__"):
 
-    test = BundleTest(n_symbols = 1, n_ticks = 100000, ticks_per_second = 2)
-    Log.info("\nPart 1: Generating dataset...")
-    df = test.generate(min_pmag = 5, max_pmag = 5, digits = 5)
+    tests = [
+        {"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 0.5},
+        {"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 1},
+        {"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 2},
+        {"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 5},
+        {"n_symbols": 2, "n_ticks": 1200, "ticks_per_second": 0.5},
+        {"n_symbols": 2, "n_ticks": 1200, "ticks_per_second": 1},
+        {"n_symbols": 2, "n_ticks": 1200, "ticks_per_second": 2},
+        {"n_symbols": 2, "n_ticks": 1200, "ticks_per_second": 5},
+        {"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 0.5},
+        {"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 1},
+        {"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 2},
+        {"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 5},
+        {"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 0.5},
+        {"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 1},
+        {"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 2},
+        {"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 5},
+    ]
+    for n, test in enumerate(tests, 1):
+        
+        Log.debug(f"Running test #{n}/{len(tests)}:\n => {test}\n")
+        test = BundleTest(**test)
+        Log.info("\nPart 1: Generating dataset...")
+        df = test.generate(min_pmag = 5, max_pmag = 5, digits = 5)
 
-    Log.info("\nPart 2: Resampling dataset with Pandas...")
-    df_res = test.on_pandas(df)
+        Log.info("\nPart 2: Resampling dataset with Pandas...")
+        df_res = test.on_pandas(df)
 
-    Log.info(f"\nPart 3: Creating ticks and processing with Bundle... {df.shape[0]} ticks")
-    ticks, candles = test.on_bundle(df)
+        Log.info(f"\nPart 3: Creating ticks and processing with Bundle... {df.shape[0]} ticks")
+        ticks, candles = test.on_bundle(df)
 
-    Log.success(f"Results...\nBundle:\n{test.bundle}")
+        Log.success(f"Results...\nBundle:\n{test.bundle}")
+        time.sleep(1)
