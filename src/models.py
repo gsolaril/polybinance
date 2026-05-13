@@ -284,7 +284,7 @@ class Bundle:
 
         self._current[key].on_tick(tick)
         self._tick_rec[key].append(tick)
-        self._tick_all[key].append(tick.__dict__)
+        self._tick_all[key].append(tick)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_freq(self, time: Timestamp = None):
@@ -294,7 +294,7 @@ class Bundle:
             #self._current.pop(key)
             if candle is None: continue
             self._cand_rec[tf_upd][key].append(candle)
-            self._cand_all[tf_upd][key].append(candle.__dict__)
+            self._cand_all[tf_upd][key].append(candle)
             self._current[key] = None
 
         cpushed = dict()
@@ -312,7 +312,7 @@ class Bundle:
                     candles_lower.append(candle_lower)
                     candle_upper.on_candle_lower(candle_lower)
                 self._cand_rec[tf_upd][key].append(candle_upper)
-                self._cand_all[tf_upd][key].append(candle_upper.__dict__)
+                self._cand_all[tf_upd][key].append(candle_upper)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __repr__(self):
@@ -380,10 +380,10 @@ class Bundle:
                 if key not in symbols: continue
                 ncmax = min(len(candles), n)
                 for nc in range(- ncmax, 0):
-                    candle: dict = candles[nc]
-                    if (candle["time"] < since): continue
-                    if (candle["time"] > until): continue
-                    yield candle
+                    candle: Candle = candles[nc]
+                    if (candle._time_close < since): continue
+                    if (candle.time > until): continue
+                    yield candle.__dict__
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def gen_ticks(self, symbols: Set, until: Timestamp, since: Timestamp, n: int):
@@ -392,9 +392,9 @@ class Bundle:
             if key not in symbols: continue
             ntmax = min(len(ticks), n)
             for nt in range(- ntmax, 0):
-                tick: Dict = ticks[nt]
-                if (tick["time"] < since): continue
-                if (tick["time"] > until): continue
+                tick: Tick = ticks[nt]
+                if (tick.time < since): continue
+                if (tick.time > until): continue
                 yield tick
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄

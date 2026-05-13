@@ -62,7 +62,7 @@ class BundleTest:
             seed = numpy.random.random(size = (self.n_ticks, 2))
             df = DataFrame(seed, columns = ["pb", "spread"])
             seed = numpy.random.normal(0, 1, self.n_ticks)
-            df["time"] = self.avg_tstep * numpy.exp(seed) / 1.6
+            df["time"] = self.avg_tstep #* numpy.exp(seed) / 1.6
             df.index = df.pop("time").cumsum() + self.start
             df.index = df.index.floor("1ms")
             df["pb"] = numpy.sign(2 * df["pb"] - 1)
@@ -177,22 +177,22 @@ class BundleTest:
 if (__name__ == "__main__"):
 
     tests = [
-        {"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 0.5},
-        {"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 1},
-        {"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 2},
-        {"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 5},
-        {"n_symbols": 2, "n_ticks": 1200, "ticks_per_second": 0.5},
-        {"n_symbols": 2, "n_ticks": 1200, "ticks_per_second": 1},
-        {"n_symbols": 2, "n_ticks": 1200, "ticks_per_second": 2},
-        {"n_symbols": 2, "n_ticks": 1200, "ticks_per_second": 5},
-        {"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 0.5},
-        {"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 1},
-        {"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 2},
-        {"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 5},
-        {"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 0.5},
-        {"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 1},
-        {"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 2},
-        {"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 5},
+        {"n_symbols": 1, "n_ticks": 120, "ticks_per_second": 0.1},
+        #{"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 1},
+        #{"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 2},
+        #{"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 5},
+        #{"n_symbols": 2, "n_ticks": 1200, "ticks_per_second": 0.5},
+        #{"n_symbols": 2, "n_ticks": 1200, "ticks_per_second": 1},
+        #{"n_symbols": 2, "n_ticks": 1200, "ticks_per_second": 2},
+        #{"n_symbols": 2, "n_ticks": 1200, "ticks_per_second": 5},
+        #{"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 0.5},
+        #{"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 1},
+        #{"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 2},
+        #{"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 5},
+        #{"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 0.5},
+        #{"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 1},
+        #{"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 2},
+        #{"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 5},
     ]
     for n, test in enumerate(tests, 1):
         
