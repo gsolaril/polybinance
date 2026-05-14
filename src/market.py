@@ -14,9 +14,9 @@ from src.utils import Config, TimeFrame, Log
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class Datafeed(Connector):
 
-    FREQ_MIN: Timedelta = min(TimeFrame._value2member_map_)
+    FREQ_MIN: Timedelta = TimeFrame.MIN.value
     STREAM_KEY = {Venue.BINANCE: "usdt@bookTicker", Venue.PMARKET: "book"}
-    MAX_QUEUE_LENGTH = int(TimeFrame.D1.value / TimeFrame.S1.value) * 15
+    MAX_QUEUE_LENGTH = int(TimeFrame.MAX.value / TimeFrame.MIN.value) * 15
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, callbacks: List[Callable]):
 

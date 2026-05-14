@@ -3,8 +3,9 @@ import numpy, hashlib, hmac
 from dataclasses import asdict, dataclass
 from collections import defaultdict, deque
 from typing import Any, Dict, List, Set
-from pandas import Series, DataFrame, concat
+from collections import OrderedDict
 from pandas import Timestamp, Timedelta
+from pandas import Series, DataFrame, concat
 from urllib.parse import urlencode
 from src.utils import Config, TimeFrame, Log
 from src.base import Venue
@@ -150,8 +151,8 @@ class Candle:
         elif self.tf.name.startswith("H"): interval = f"{self.time:%Y/%m/%d %H:%M}-{self._time_close:%H:%M}"
         elif self.tf.name.startswith("D"): interval = f"{self.time:%Y/%m/%d}-{self._time_close:%Y/%m/%d}"
         else: interval = f"{self.time:%Y/%m/%d %H:%M:%S.%f}-{self._time_close:%Y/%m/%d %H:%M:%S.%f}"
-        return f"Candle({self.tf.name} @ {interval}) | {self.venue}.{self.symbol}" \
-        f" | O:{self.oa}, H:{self.ha}, L:{self.la}, C:{self.ca} | V:{self.volume})"
+        return f"Candle({self.tf.name} @ {interval} | {self.venue}.{self.symbol} | " \
+            f"O:{self.oa}, H:{self.ha}, L:{self.la}, C:{self.ca} | V:{self.volume})"
         
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __post_init__(self):
@@ -160,10 +161,6 @@ class Candle:
         self._time_ltick = self.time
         self.time = self.time.floor(self.tf.value)
         self._time_close = self.time + self.tf.value
-        if (self.ha is None): self.ha = - numpy.inf
-        if (self.la is None): self.la = + numpy.inf
-        if (self.hb is None): self.hb = - numpy.inf
-        if (self.lb is None): self.lb = + numpy.inf
         if not self.volume: self.volume = 0
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -173,16 +170,23 @@ class Candle:
         if (tick.time >= self._time_close): return
         if (tick.venue != self.venue): return
         if (tick.symbol != self.symbol): return
-        if not tick.error:
-            self.volume += 1
-            self._time_ltick = tick.time
-            if (self.oa is None): self.oa = tick.pa
-            if (self.ob is None): self.ob = tick.pb
-            if (tick.pa > self.ha): self.ha = tick.pa
-            if (tick.pa < self.la): self.la = tick.pa
-            if (tick.pb > self.hb): self.hb = tick.pb
-            if (tick.pb < self.lb): self.lb = tick.pb
-            self.ca, self.cb = tick.pa, tick.pb
+        if tick.error: return
+        self._time_ltick = tick.time
+        self.volume = self.volume + 1
+        if (self.oa is None): self.oa = tick.pa
+        if (self.ha is None): self.ha = tick.pa
+        if (self.la is None): self.la = tick.pa
+        if (self.ob is None): self.ob = tick.pb
+        if (self.hb is None): self.hb = tick.pb
+        if (self.lb is None): self.lb = tick.pb
+        if tick.pa:
+            self.ha = max(self.ha, tick.pa)
+            self.la = min(self.la, tick.pa)
+            self.ca = tick.pa
+        if tick.pb:
+            self.hb = max(self.hb, tick.pb)
+            self.lb = min(self.lb, tick.pb)
+            self.cb = tick.pb
     
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_candle_lower(self, candle: "Candle"):
@@ -191,15 +195,20 @@ class Candle:
         if (candle.symbol != self.symbol): return
         if (candle._time_ltick < self._time_ltick): return
         if (candle._time_close > self._time_close): return
-        self.volume += candle.volume
         self._time_ltick = candle._time_ltick
+        self.volume = self.volume + candle.volume
         if (self.oa is None): self.oa = candle.oa
         if (self.ob is None): self.ob = candle.ob
-        if (candle.ha > self.ha): self.ha = candle.ha
-        if (candle.la < self.la): self.la = candle.la
-        if (candle.hb > self.hb): self.hb = candle.hb
-        if (candle.lb < self.lb): self.lb = candle.lb
-        self.ca, self.cb = candle.ca, candle.cb
+        if (self.ha is None): self.ha = candle.ha
+        if (self.la is None): self.la = candle.la
+        if (self.hb is None): self.hb = candle.hb
+        if (self.lb is None): self.lb = candle.lb
+        if candle.ha: self.ha = max(self.ha, candle.ha)
+        if candle.la: self.la = min(self.la, candle.la)
+        if candle.hb: self.hb = max(self.hb, candle.hb)
+        if candle.lb: self.lb = min(self.lb, candle.lb)
+        if candle.ca: self.ca = candle.ca
+        if candle.cb: self.cb = candle.cb
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -214,9 +223,8 @@ class Candle:
 #▄▄▄▄▄▄▄▄▄▄▄
 class Bundle:
 
-    BUFFER_SIZE = 60
     MIN_N_TICKS, MAX_N_TICKS = 100_000, 10_000_000
-    MIN_N_CANDLES, MAX_N_CANDLES = 10_000, 500_000
+    MIN_N_CANDLES, MAX_N_CANDLES = 10_000, 100_000
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, nt: int = None, nc: int = None, preload: dict = None):
 
@@ -225,25 +233,25 @@ class Bundle:
         
         if nt is None: nt = self.MAX_N_TICKS
         if nc is None: nc = self.MAX_N_CANDLES
-        self._BC, self._BT = self.BUFFER_SIZE, self.MIN_N_TICKS
         self._NT, self._NC = int(nt), int(nc)
 
-        if preload is None: preload = dict()
-        self._current = dict[Any, Candle]()
-
-        self._cands = dict()
-        self._ticks = defaultdict[Any, deque](lambda: self._queue(self._NT))
+        self._count = dict()
+        self._ticks = dict()
+        self._candles = dict()
         for tf in TimeFrame:
-            self._cands[tf] = defaultdict[Any, deque](lambda: self._queue(self._NC))
+            self._candles[tf] = dict()
+        if preload is None: preload = dict()
 
+        symbols: dict[tuple, deque] = None
         for tf, symbols in preload.items():
-            symbols: dict[tuple, deque] = symbols
             for key, candles in symbols.items():
-                self._cands[tf][key] = candles.copy()
+                if key not in self._candles[tf]:
+                    self._candles[tf][key] = self._queue(self._NC)
+                self._candles[tf][key] = candles.copy()
 
     #▄▄▄▄▄▄▄▄▄▄
-    @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def symbols(self): return sorted(self._current)
+    @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def symbols(self): return sorted(self._count)
     #▄▄▄▄▄▄▄▄▄▄
     @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def since_start(self): return Timestamp.utcnow() - self._start
@@ -254,7 +262,7 @@ class Bundle:
     @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def since_tick_n(self): return Timestamp.utcnow() - self._tick_last.time
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def _queue(self, len: int = None):
         if not len: len = self._NC
         len = min(len, self.MAX_N_TICKS)
@@ -263,47 +271,64 @@ class Bundle:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_tick(self, tick: Tick):
 
+        self._tick_last = tick
         if self._tick_first is None:
             self._tick_first = tick
 
-        self._tick_last = tick
+        nc = self._NC
+        nt = self._NT // nc
         key = (tick.venue, tick.symbol)
-        if key not in self._current:
-            self._current[key] = None
-            self._ticks[key] = self._queue(self._NT)
+
+        if key not in self._ticks:
+            self._ticks[key] = OrderedDict()
+            self._count[key] = 0
             for tf in TimeFrame:
-                self._cands[tf][key] = self._queue(self._NC)
+                self._candles[tf][key] = self._queue(nc)
 
-        if self._current[key] is None:
-            self._current[key] = Candle(TimeFrame.S1, *key, time = tick.time)
+        close_at = tick.time + TimeFrame.MIN.value
+        close_at = close_at.floor(TimeFrame.MIN.value)
 
-        self._current[key].on_tick(tick)
-        self._ticks[key].append(tick)
+        if close_at not in self._ticks[key]:
+            self._ticks[key][close_at] = self._queue(nt)
+
+        #print(tick)
+        self._ticks[key][close_at].append(tick)
+        self._count[key] = self._count[key] + 1
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_freq(self, time: Timestamp = None):
 
-        tf_upd, tf_opt = TimeFrame.S1, TimeFrame.D1
-        for key, candle in self._current.copy().items():
-            if candle is None: continue
-            self._cands[tf_upd][key].append(candle)
-            self._current[key] = None
-
-        cpushed = dict()
         if (time is None): time = Timestamp.utcnow()
+        closed_at = time.floor(TimeFrame.MIN.value)
+        opened_at = closed_at - TimeFrame.MIN.value
+        #print("\nTICKS BETWEEN:", opened_at, "AND", closed_at, "\n")
+
+        candles: OrderedDict = None
+        for key, candles in self._ticks.items():
+            ticks: deque = candles.get(closed_at, deque())
+            candle = Candle(TimeFrame.MIN, *key, time = opened_at)
+            for tick in ticks: candle.on_tick(tick)
+            while (self._count[key] >= self._NT):
+                n_drop = len(candles.popitem(last = False)[1])
+                self._count[key] = self._count[key] - n_drop
+            self._candles[TimeFrame.MIN][key].append(candle)
+            #print(candle), print("-" * 120)
+
+        tf_opt: TimeFrame = None
         for tf_upd, tf_opt in TimeFrame.updatable(time):
             time_candle: Timestamp = time - tf_upd.value
             n_candles = tf_upd.value // tf_opt.value
-            cpushed[tf_upd] = list()
             for key in self.symbols:
-                candle_upper = Candle(tf_upd, *key, time = time_candle)
-                candles_lower = list()
+                candle = Candle(tf_upd, *key, time = time_candle)
                 for n in range(- n_candles, 0):
-                    try: candle_lower = self._cands[tf_opt][key][n]
+                    try: candle_lower = self._candles[tf_opt][key][n]
                     except IndexError: continue
-                    candles_lower.append(candle_lower)
-                    candle_upper.on_candle_lower(candle_lower)
-                self._cands[tf_upd][key].append(candle_upper)
+                    candle.on_candle_lower(candle_lower)
+                    #print(candle_lower)
+                self._candles[tf_upd][key].append(candle)
+                #print(candle), print("-" * 120)
+                
+        #print("=" * 120)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __repr__(self):
@@ -311,7 +336,7 @@ class Bundle:
         df = dict()
         df_lines = list[str]()
         keys = dict()
-        for tf, keys in self._cands.items():
+        for tf, keys in self._candles.items():
             df[tf] = dict()
             for key, candles in keys.items():
                 df[tf][key] = len(candles)
@@ -325,8 +350,7 @@ class Bundle:
             report_lines.append(f"  Time of last tick:  {self._tick_last.time:%H:%M:%S} ({self.since_tick_n} ago)")
             report_lines.append(f"  Time of first tick: {self._tick_first.time:%H:%M:%S} ({self.since_tick_1} ago)")
             df.columns = df.columns.rename(Tick.INDEX[: 2])
-            tcount = {key: len(values) for key, values in self._ticks.items()}
-            df.loc["*ticks"] = Series(tcount)
+            df.loc["*ticks"] = Series(self._count)
             df["*total"] = df.sum(axis = "columns")
             df = concat((df.iloc[-1:], df.iloc[:-1]))
             df_lines = df.to_string().split("\n")
@@ -341,7 +365,7 @@ class Bundle:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def get(self, tf: Set[TimeFrame] = None, symbol: Set[tuple] = None, until: Timestamp = None, **kwargs):
 
-        if not symbol: symbol = {*self._current.keys()}
+        if not symbol: symbol = {*self.symbols}
         elif isinstance(symbol, tuple): symbol = {symbol}
         elif isinstance(symbol, str): symbol = {symbol}
 
@@ -354,10 +378,10 @@ class Bundle:
 
         if tf is Tick:
             index = Tick.INDEX.copy()
-            gen = self.gen_ticks(symbol, until, since, n)
+            gen = self.gen_ticks(symbol, until, since)
         else:
             index = Candle.INDEX.copy()
-            if not tf: tf = {*self._cands.keys()}
+            if not tf: tf = {*self._candles.keys()}
             elif isinstance(tf, str): tf = {TimeFrame[tf]}
             elif isinstance(tf, TimeFrame): tf = {tf}
             gen = self.gen_candles(tf, symbol, until, since, n)
@@ -370,10 +394,11 @@ class Bundle:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def gen_candles(self, tfs: Set, symbols: Set, until: Timestamp, since: Timestamp, n: int):
 
-        for tf, dtf in dict.items(self._cands):
-            if tf not in tfs: continue
-            for key, candles in dict.items(dtf):
-                if key not in symbols: continue
+        dtf: dict = None
+        for tf in tfs:
+            for key in symbols:
+                dtf = self._candles.get(tf, {})
+                candles = dtf.get(key, [])
                 ncmax = min(len(candles), n)
                 for nc in range(- ncmax, 0):
                     candle: Candle = candles[nc]
@@ -381,17 +406,20 @@ class Bundle:
                     if (candle.time > until): continue
                     yield candle.__dict__
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def gen_ticks(self, symbols: Set, until: Timestamp, since: Timestamp, n: int):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def gen_ticks(self, symbols: Set, until: Timestamp, since: Timestamp):
 
-        for key, ticks in dict.items(self._ticks):
-            if key not in symbols: continue
-            ntmax = min(len(ticks), n)
-            for nt in range(- ntmax, 0):
-                tick: Tick = ticks[nt]
-                if (tick.time < since): continue
-                if (tick.time > until): continue
-                yield tick
+        dtc: dict = None
+        for key in symbols:
+            dtc = self._ticks.get(key, {})
+            for time, ticks in dtc.items():
+                if (time < since): continue
+                if (time > until): continue
+                for nt in range(len(ticks)):
+                    tick: Tick = ticks[nt]
+                    if (tick.time < since): continue
+                    if (tick.time > until): continue
+                    yield tick.__dict__
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████

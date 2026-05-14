@@ -2,7 +2,7 @@
 import os, sys
 from loguru import logger as Log
 from configparser import ConfigParser
-from typing import Any, List, NamedTuple
+from typing import Any, List, NamedTuple, Generator, Tuple
 from pandas import Timestamp, Timedelta
 from enum import Enum, EnumMeta
 from sympy import divisors
@@ -31,16 +31,19 @@ class _Meta(EnumMeta):
         super().__init__(name, bases, dct)
         tf1: TimeFrame; tf2: TimeFrame
         cls._DIVISORS = dict()
+        cls.MIN, cls.MAX = None, None
         for tf1 in cls:
             cls._DIVISORS[tf1] = list()
             for tf2 in cls:
                 if (tf1 <= tf2): continue
                 if (tf1.value % tf2.value): continue
                 list.append(cls._DIVISORS[tf1], tf2)
+            if (cls.MIN is None) or (tf1 < cls.MIN): cls.MIN = tf1
+            if (cls.MAX is None) or (tf1 > cls.MAX): cls.MAX = tf1
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class TimeFrame(Enum, metaclass = _Meta):
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     S1, S2, S3, S4, S5, S6, S10, S12, S15, S20, S30 \
           = [Timedelta(seconds = n) for n in divisors(60)[: -1]]
     M1, M2, M3, M4, M5, M6, M10, M12, M15, M20, M30 \
@@ -103,3 +106,5 @@ if (__name__ == "__main__"):
     #Log.trace("This is a trace message.")
     #Log.info(f"This is an info message. CONFIG:\n{CONFIG}")
     for tf in TimeFrame: print(">>", tf.name, ":", tf.value)
+    print(">> MIN =", TimeFrame.MIN.name, ":", TimeFrame.MIN.value)
+    print(">> MAX =", TimeFrame.MAX.name, ":", TimeFrame.MAX.value)

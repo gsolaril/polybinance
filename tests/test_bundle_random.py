@@ -62,7 +62,8 @@ class BundleTest:
             seed = numpy.random.random(size = (self.n_ticks, 2))
             df = DataFrame(seed, columns = ["pb", "spread"])
             seed = numpy.random.normal(0, 1, self.n_ticks)
-            df["time"] = self.avg_tstep #* numpy.exp(seed) / 1.6
+            df["time"] = self.avg_tstep
+            if True: df["time"] *= numpy.exp(seed) / 1.6
             df.index = df.pop("time").cumsum() + self.start
             df.index = df.index.floor("1ms")
             df["pb"] = numpy.sign(2 * df["pb"] - 1)
@@ -129,20 +130,19 @@ class BundleTest:
             iterable = df.reset_index().iterrows(),
             total = df.shape[0], ncols = 86)
 
-        self.bundle = Bundle(nc = self.n_ticks,
-            nt = self.n_symbols * self.n_ticks)
-
+        self.bundle = Bundle()
+        #print(), print("-" * 120)
         for _, row in iterator:
             tick = Tick(**row, qa = 1.0, qb = 1.0)
             t_1s_curr = tick.time.floor("1s")
             if (t_1s_prev is None):
                 t_1s_prev = t_1s_curr
-            if (t_1s_curr > t_1s_prev):
-                assert tick.time is not None
-                try: self.bundle.on_freq(t_1s_curr)
-                except Exception as EXC:
-                    Log.exception(EXC)
-                t_1s_prev = t_1s_curr
+            dist = t_1s_curr - t_1s_prev
+            n_upd = dist / TimeFrame.MIN.value
+            for ns in range(int(n_upd)):
+                t_1s_prev += TimeFrame.MIN.value
+                try: self.bundle.on_freq(t_1s_prev)
+                except Exception as EXC: Log.exception(EXC)
             self.bundle.on_tick(tick)
 
         ticks = self.bundle.get(Tick)
@@ -177,7 +177,7 @@ class BundleTest:
 if (__name__ == "__main__"):
 
     tests = [
-        {"n_symbols": 1, "n_ticks": 120, "ticks_per_second": 0.1},
+        #{"n_symbols": 1, "n_ticks": 31, "ticks_per_second": 0.5},
         #{"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 1},
         #{"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 2},
         #{"n_symbols": 1, "n_ticks": 1200, "ticks_per_second": 5},
@@ -189,10 +189,13 @@ if (__name__ == "__main__"):
         #{"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 1},
         #{"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 2},
         #{"n_symbols": 1, "n_ticks": 120000, "ticks_per_second": 5},
+        {"n_symbols": 2, "n_ticks": 60000, "ticks_per_second": 0.1},
+        #{"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 0.25},
         #{"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 0.5},
         #{"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 1},
         #{"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 2},
         #{"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 5},
+        #{"n_symbols": 2, "n_ticks": 120000, "ticks_per_second": 10},
     ]
     for n, test in enumerate(tests, 1):
         
