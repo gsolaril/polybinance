@@ -2,7 +2,7 @@
 import asyncio
 from dataclasses import dataclass
 from asyncio import CancelledError
-from typing import Any, Callable, ClassVar, Dict, List
+from typing import Any, Callable, ClassVar, Dict, List, Set
 from pandas import DataFrame, Timestamp
 from src.models import Order, Tick, Candle
 from src.market import Datafeed, Executor
@@ -100,7 +100,10 @@ class Strategy:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def link(self, datafeed: Datafeed, executor: Executor):
         self._datafeed, self._executor = datafeed, executor
-        self.data = self._datafeed.history
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def get(self, tf: Set = None, symbol: Set = None, until: Timestamp = None, **kwargs):
+        return self._datafeed._bundle.get(tf = tf, symbol = symbol, until = until, **kwargs)
+
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def send(self, order: Order):
         assert self._executor is not None, "Executor not linked"
@@ -118,11 +121,16 @@ class Test(Strategy):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def setup(self):
         self.last = Timestamp.utcnow()
+        self.add_cron(self.review, TimeFrame.S1)
 
     #▄▄▄▄▄▄▄▄
     On.tick#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_tick(self, tick: Tick):
         self.last = tick.time
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def review(self):
+        pass
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_kill(self):
@@ -131,28 +139,8 @@ class Test(Strategy):
         str_last = time_kill.strftime(DT_FORMAT)
         str_start = self._start.strftime(DT_FORMAT)
         str_timeline = f"{str_start}-{str_last}"
-
-        candles = self.data.copy()
-        ticks = candles.pop("tick")
-        df: DataFrame = list[Any]()
-        for queue in ticks.values():
-            for tick in queue:
-                df.append(tick)
-
-        df = DataFrame(df).set_index(Tick.INDEX)
-        df = df.loc[~ df["error"]].sort_index()
-        df.to_csv(f"logs/{str_timeline}_ticks.csv")
-
-        df: DataFrame = list[Any]()
-        for tf_data in candles.values():
-            for queue in tf_data.values():
-                for candle in queue:
-                    df.append(candle)
-
-        subset = ["oa", "ob", "ca", "cb"]
-        df = DataFrame(df).set_index(Candle.INDEX)
-        df = df.dropna(subset = subset).sort_index()
-        df.to_csv(f"logs/{str_timeline}_candles.csv")
+        self.get().to_csv(f"logs/{str_timeline}_candles.csv")
+        self.get(Tick).to_csv(f"logs/{str_timeline}_ticks.csv")
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
