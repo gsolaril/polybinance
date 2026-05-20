@@ -16,14 +16,14 @@ class Datafeed(Connector):
 
     FREQ_MIN: Timedelta = TimeFrame.MIN.value
     STREAM_KEY = {Venue.BINANCE: "usdt@bookTicker", Venue.PMARKET: "book"}
-    MAX_QUEUE_LENGTH = int(TimeFrame.MAX.value / TimeFrame.MIN.value) * 15
+    MAX_QUEUE_LENGTH = int(TimeFrame.MAX.value / TimeFrame.MIN.value) * 2
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, callbacks: List[Callable]):
 
         self._callbacks = callbacks
         self.tokens = dict[str, Any]()
         self.symbols = dict[str, Any]()
-        self._bundle = Bundle(self.MAX_QUEUE_LENGTH)
+        self._bundle = Bundle(ncpf = self.MAX_QUEUE_LENGTH)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def run(self):
@@ -46,22 +46,22 @@ class Datafeed(Connector):
     async def on_freq(self):
 
         next = Timestamp.utcnow().ceil(self.FREQ_MIN)
-        sleep = self.FREQ_MIN.total_seconds() / 10
+        sleep = self.FREQ_MIN.total_seconds() / 20
         while True:
             await asyncio.sleep(sleep)
             now = Timestamp.utcnow()
             if (now < next): continue
             last = now.floor(self.FREQ_MIN)
             next = now.ceil(self.FREQ_MIN)
-            self._bundle.on_freq(last)
+            self._bundle.resample_ticks(last)
+            self._bundle.resample_candles(last)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_message(self, message: WSMessage, venue: Venue):
 
         try: data = json.loads(message.data)
-        except json.JSONDecodeError as EXC:
-            Log.warning(f"{venue.value} non-JSON: \"{message.data}\"")
-            return
+        except json.JSONDecodeError: return Log.warning(
+          f"{venue.value} non-JSON: \"{message.data}\"")           
 
         ticks = Tick.from_json(data, venue)
         if not ticks: return

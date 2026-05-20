@@ -223,17 +223,18 @@ class Candle:
 #▄▄▄▄▄▄▄▄▄▄▄
 class Bundle:
 
-    MIN_N_TICKS, MAX_N_TICKS = 100_000, 10_000_000
-    MIN_N_CANDLES, MAX_N_CANDLES = 10_000, 100_000
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def __init__(self, nt: int = None, nc: int = None, preload: dict = None):
+    MIN_N_TICKSPS, MAX_N_TICKSPS = 5_000, 100_000
+    MIN_N_CANDLES, MAX_N_CANDLES = 10_000, 1_000_000
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __init__(self, ntps: int = None, ncpf: int = None, preload: dict = None):
 
         self._start = Timestamp.utcnow()
         self._tick_first = self._tick_last = None
         
-        if nt is None: nt = self.MAX_N_TICKS
-        if nc is None: nc = self.MAX_N_CANDLES
-        self._NT, self._NC = int(nt), int(nc)
+        if ntps is None: ntps = self.MIN_N_TICKSPS
+        if ncpf is None: ncpf = self.MIN_N_CANDLES
+        self._n_ticks_max = int(ntps * ncpf / 100)
+        self._NT, self._NC = int(ntps), int(ncpf)
 
         self._count = dict()
         self._ticks = dict()
@@ -265,7 +266,7 @@ class Bundle:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def _queue(self, len: int = None):
         if not len: len = self._NC
-        len = min(len, self.MAX_N_TICKS)
+        len = min(len, self._NT)
         return deque(maxlen = len)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -275,44 +276,49 @@ class Bundle:
         if self._tick_first is None:
             self._tick_first = tick
 
-        nc = self._NC
-        nt = self._NT // nc
         key = (tick.venue, tick.symbol)
 
         if key not in self._ticks:
             self._ticks[key] = OrderedDict()
             self._count[key] = 0
             for tf in TimeFrame:
-                self._candles[tf][key] = self._queue(nc)
+                self._candles[tf][key] = self._queue(self._NC)
 
         close_at = tick.time + TimeFrame.MIN.value
         close_at = close_at.floor(TimeFrame.MIN.value)
 
         if close_at not in self._ticks[key]:
-            self._ticks[key][close_at] = self._queue(nt)
+            self._ticks[key][close_at] = self._queue(self._NT)
 
-        #print(tick)
         self._ticks[key][close_at].append(tick)
         self._count[key] = self._count[key] + 1
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def on_freq(self, time: Timestamp = None):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def on_candle(self, candle: Candle):
+        key = (candle.venue, candle.symbol)
+        if key not in self._candles[candle.tf]:
+            self._candles[candle.tf][key] = self._queue(self._NC)
+        self._candles[candle.tf][key].append(candle)
 
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def resample_ticks(self, time: Timestamp = None):
         if (time is None): time = Timestamp.utcnow()
         closed_at = time.floor(TimeFrame.MIN.value)
         opened_at = closed_at - TimeFrame.MIN.value
-        #print("\nTICKS BETWEEN:", opened_at, "AND", closed_at, "\n")
 
         candles: OrderedDict = None
         for key, candles in self._ticks.items():
             ticks: deque = candles.get(closed_at, deque())
             candle = Candle(TimeFrame.MIN, *key, time = opened_at)
             for tick in ticks: candle.on_tick(tick)
-            while (self._count[key] >= self._NT):
+            while (self._count[key] >= self._n_ticks_max):
                 n_drop = len(candles.popitem(last = False)[1])
                 self._count[key] = self._count[key] - n_drop
-            self._candles[TimeFrame.MIN][key].append(candle)
-            #print(candle), print("-" * 120)
+            self.on_candle(candle)
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def resample_candles(self, time: Timestamp = None):
+        if (time is None): time = Timestamp.utcnow()
 
         tf_opt: TimeFrame = None
         for tf_upd, tf_opt in TimeFrame.updatable(time):
@@ -324,11 +330,7 @@ class Bundle:
                     try: candle_lower = self._candles[tf_opt][key][n]
                     except IndexError: continue
                     candle.on_candle_lower(candle_lower)
-                    #print(candle_lower)
-                self._candles[tf_upd][key].append(candle)
-                #print(candle), print("-" * 120)
-                
-        #print("=" * 120)
+                self.on_candle(candle)   
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __repr__(self):

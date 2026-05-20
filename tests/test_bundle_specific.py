@@ -66,7 +66,7 @@ class TestBundle(TestCase):
                 ticks.append(tick), self.bundle.on_tick(tick)
             tc1s.append(tc := today + Timedelta("1s") * (s + 1))
             c1s.append(price), h1s.append(h), l1s.append(l)
-            self.bundle.on_freq(tc)
+            self.bundle.resample(tc)
 
         self.assertEqual(len(self.bundle._ticks), 1)
         symbols = self.bundle._candles[TimeFrame.S1]
@@ -115,11 +115,11 @@ class TestBundle(TestCase):
         self.bundle.on_tick(t0)
         self.bundle.on_tick(t1)
         self.bundle.on_tick(t2)
-        self.bundle.on_freq(base + Timedelta(seconds = 1))
+        self.bundle.resample(base + Timedelta(seconds = 1))
         s1 = self.bundle._candles[TimeFrame.S1][key]
         self.assertEqual(len(s1), 1)
         self.assertEqual(s1[-1].volume, 2)
-        self.bundle.on_freq(base + Timedelta(seconds = 2))
+        self.bundle.resample(base + Timedelta(seconds = 2))
         self.assertEqual(len(s1), 2)
         self.assertEqual(s1[-1].volume, 1)
 

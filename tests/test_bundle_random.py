@@ -141,7 +141,7 @@ class BundleTest:
             n_upd = dist / TimeFrame.MIN.value
             for ns in range(int(n_upd)):
                 t_1s_prev += TimeFrame.MIN.value
-                try: self.bundle.on_freq(t_1s_prev)
+                try: self.bundle.resample(t_1s_prev)
                 except Exception as EXC: Log.exception(EXC)
             self.bundle.on_tick(tick)
 
