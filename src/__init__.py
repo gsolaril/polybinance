@@ -1,9 +1,7 @@
-# Marker file so `import src.*` works when repo root is on sys.path.
+from .models import Tick, Candle, Order, Bundle
+from .strategy import Strategy, Test, On
+from .utils import Log, TimeFrame, Config
+from .connectors import *
 
-"""
-Package marker for project modules under `src/`.
-
-This allows imports like `from src.strategy import Strategy` to work
-consistently across different entry points (e.g. future `main.py`).
-"""
-
+__all__ = [*connectors.__all__, "Log", "TimeFrame", "Config",
+  "Strategy", "Test", "On", "Tick", "Candle", "Order", "Bundle"]

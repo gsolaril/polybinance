@@ -24,13 +24,13 @@ Log.add(sys.stdout, format = f"[{LOG_FORMAT}] {{message}}", **args)
 LOG_FORMAT = "{time:YYYY-MM-DD HH:mm:ss.SSS!UTC} | %s | {level}" % loc_format
 Log.add(LOG_FILENAME, format = f"[{LOG_FORMAT}] {{message}}", **args)
 
-#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-class _Meta(EnumMeta):
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def __init__(cls, name, bases, dct):
-        super().__init__(name, bases, dct)
-        tf1: TimeFrame; tf2: TimeFrame
-        cls._DIVISORS = dict()
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+class Meta(EnumMeta):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __new__(mcls, name: str, bases: tuple[type], namespace: dict[str, Any]):
+        cls = super().__new__(mcls, name, bases, namespace)
+        tf1: "TimeFrame"; tf2: "TimeFrame"
+        cls._DIVISORS = dict[Any, Any]()
         cls.MIN, cls.MAX = None, None
         for tf1 in cls:
             cls._DIVISORS[tf1] = list()
@@ -40,9 +40,12 @@ class _Meta(EnumMeta):
                 list.append(cls._DIVISORS[tf1], tf2)
             if (cls.MIN is None) or (tf1 < cls.MIN): cls.MIN = tf1
             if (cls.MAX is None) or (tf1 > cls.MAX): cls.MAX = tf1
+        cls.RATIO = int(cls.MAX.value / cls.MIN.value)
+        return cls
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-class TimeFrame(Enum, metaclass = _Meta):
+class TimeFrame(Enum, metaclass = Meta):
+    MIN: "TimeFrame"; MAX: "TimeFrame"; RATIO: int
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     S1, S2, S3, S4, S5, S6, S10, S12, S15, S20, S30 \
           = [Timedelta(seconds = n) for n in divisors(60)[: -1]]
@@ -50,37 +53,52 @@ class TimeFrame(Enum, metaclass = _Meta):
           = [Timedelta(minutes = n) for n in divisors(60)[: -1]]
     H1, H2, H3, H4, H6, H8, H12, D1 \
           = [Timedelta(hours = n) for n in divisors(24)]
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def __eq__(self, other: Enum): return (self.value == other.value)
-    def __ne__(self, other: Enum): return (self.value != other.value)
-    def __ge__(self, other: Enum): return (self.value >= other.value)
-    def __le__(self, other: Enum): return (self.value <= other.value)
-    def __gt__(self, other: Enum): return (self.value > other.value)
-    def __lt__(self, other: Enum): return (self.value < other.value)
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __add__(self, other: "TimeFrame"): return self.value + other.value
+    def __sub__(self, other: "TimeFrame"): return self.value - other.value
+    def __div__(self, other: "TimeFrame"): return self.value / other.value
+    def __truediv__(self, other: "TimeFrame"): return float(self.value / other.value)
+    def __floordiv__(self, other: "TimeFrame"): return int(self.value / other.value)
+    def __mod__(self, other: "TimeFrame"): return self.value % other.value
+    def __eq__(self, other: "TimeFrame"): return (self.value == other.value)
+    def __ne__(self, other: "TimeFrame"): return (self.value != other.value)
+    def __ge__(self, other: "TimeFrame"): return (self.value >= other.value)
+    def __le__(self, other: "TimeFrame"): return (self.value <= other.value)
+    def __gt__(self, other: "TimeFrame"): return (self.value > other.value)
+    def __lt__(self, other: "TimeFrame"): return (self.value < other.value)
     def __hash__(self): return hash(self.value)
     def __repr__(self): return self.name
     def __str__(self): return self.name
     def __len__(self): return 30
+    #▄▄▄▄▄▄▄▄▄▄
+    @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def ts(self: "TimeFrame"): return int(Timedelta.total_seconds(self.value))
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def is_unit(self, unit: str): return self.name.startswith(unit[0].upper())
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def invert(cls, tf: "TimeFrame"): return tf.name[1 :] + tf.name[0].lower()
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def invert_nt(cls, tf: "TimeFrame"): return tf.name[1 :] + tf.name[0].lower()
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def invert_tn(cls, tf: str): return TimeFrame[tf[-1].upper() + tf[: -1]]
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def from_array(cls, tfs: List["TimeFrame"]): return [cls[tf] for tf in tfs]
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def updatable(cls, time: Timestamp = None):
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def updatable(cls, time: Timestamp = None, mtf: "TimeFrame" = None):
+        if (mtf is None): mtf = TimeFrame.MIN
         if (time is None): time = Timestamp.utcnow()
         tf_div: List[TimeFrame] = None; tf_max: TimeFrame = None
         td = time.floor(cls.S1.value) - time.floor(cls.D1.value)
         for tf_max in reversed(cls):
             if not (td % tf_max.value): break
-        for tf_div in cls._DIVISORS[tf_max]:
-            if (tf_div == TimeFrame.S1): continue
-            yield tf_div, cls._DIVISORS[tf_div][-1]
-        if (tf_max != TimeFrame.S1):
-            yield tf_max, cls._DIVISORS[tf_max][-1]
-
+        _divisors = getattr(cls, "_DIVISORS")
+        for tf_div in _divisors[tf_max]:
+            if (tf_div <= mtf): continue
+            yield tf_div, _divisors[tf_div][-1]
+        if (tf_max != mtf):
+            yield tf_max, _divisors[tf_max][-1]
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 polyevents = CONFIG["STRATEGY"]["polyevents"].split(" ")
@@ -105,6 +123,16 @@ if (__name__ == "__main__"):
     #Log.debug("This is a debug message.")
     #Log.trace("This is a trace message.")
     #Log.info(f"This is an info message. CONFIG:\n{CONFIG}")
-    for tf in TimeFrame: print(">>", tf.name, ":", tf.value)
-    print(">> MIN =", TimeFrame.MIN.name, ":", TimeFrame.MIN.value)
-    print(">> MAX =", TimeFrame.MAX.name, ":", TimeFrame.MAX.value)
+    for tf in TimeFrame: print(">>", tf.name, ":", tf.value, "/", tf.ts, "seconds")
+    print(">> MIN =", TimeFrame.MIN.name, ":", TimeFrame.MIN.value, "/", TimeFrame.MIN.ts, "seconds")
+    print(">> MAX =", TimeFrame.MAX.name, ":", TimeFrame.MAX.value, "/", TimeFrame.MAX.ts, "seconds")
+    print("Testing math ops")
+    print(">> S1 + S2 =", TimeFrame.S1 + TimeFrame.S2)
+    print(">> S1 - S2 =", TimeFrame.S1 - TimeFrame.S2)
+    print(">> S1 / S2 =", TimeFrame.S1 / TimeFrame.S2)
+    print(">> S1 // S2 =", TimeFrame.S1 // TimeFrame.S2)
+    print(">> S1 % S2 =", TimeFrame.S1 % TimeFrame.S2)
+    print(">> S1 == S2 =", TimeFrame.S1 == TimeFrame.S2)
+    print(">> S1 != S2 =", TimeFrame.S1 != TimeFrame.S2)
+    print(">> S1 >= S2 =", TimeFrame.S1 >= TimeFrame.S2)
+    print(TimeFrame.RATIO)

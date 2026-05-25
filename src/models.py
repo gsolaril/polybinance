@@ -1,44 +1,34 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-import numpy, hashlib, hmac
+import numpy
 from dataclasses import asdict, dataclass
 from collections import defaultdict, deque
 from typing import Any, Dict, List, Set
 from collections import OrderedDict
 from pandas import Timestamp, Timedelta
 from pandas import Series, DataFrame, concat
-from urllib.parse import urlencode
-from src.utils import Config, TimeFrame, Log
-from src.base import Venue
+from .utils import Config, TimeFrame, Log
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄
 @dataclass
+class Symbol: # TODO: Not yet being used.
+    venue: str; symbol: str; endp_id: str
+    point_size: float; point_value: float
+    
+    
+    _SEP = " "
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __repr__(self):
+        return str.join(self._SEP, [self.venue, self.symbol])
+
+#▄▄▄▄▄▄▄▄▄
+@dataclass
 class Order:
-    venue: Venue; symbol: str
-    size: float; price: float = None
-    comment: str = None
+    venue: str; symbol: str; size: float
+    price: float = None; comment: str = None
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __dict__(self): return asdict(self)
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def signature(self, payload: Dict[str, Any]):
-        query = urlencode(payload, doseq = True)
-        hmac_key = Config.auth_binance.secret.encode("utf-8")
-        hmac_msg = query.encode("utf-8")
-        signature = hmac.new(hmac_key, hmac_msg, hashlib.sha256)
-        return signature.hexdigest()
-
-    #▄▄▄▄▄▄▄▄
-    @property
-    def binance(self):
-        payload = {
-            "timestamp": int(self.time.timestamp() * 1e3), "symbol": self.symbol,
-            "side": self.side, "type": self.type, "quantity": abs(self.size),
-            "recvWindow": 5000}
-        if (self.price is not None):
-            payload.update({"price": self.price, "timeInForce": self.mode})
-        payload["signature"] = self.signature(payload)
-        return payload
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __post_init__(self):
@@ -47,7 +37,6 @@ class Order:
         self.symbol = self.symbol.replace("/", "")
         self.symbol = self.symbol.replace(":", "")
         assert (self.size != 0), "Order size cannot be 0"
-        assert isinstance(self.venue, Venue), "Invalid venue"
         self.side = "BUY" if (self.size > 0) else "SELL"
         self.type = "LIMIT" if self.price else "MARKET"
         self.mode = "GTC" if self.price else "IOC"
@@ -79,47 +68,11 @@ class Tick:
     def __post_init__(self):
         self.pa, self.pb = float(self.pa), float(self.pb)
         self.qa, self.qb = float(self.qa), float(self.qb)
-        assert isinstance(self.venue, Venue), "Invalid venue"
         self.error = (self.pa * self.qa == 0) | (self.pb * self.qb == 0)
         self.qavga = self.qavgb = self.pavga = self.pavgb = None
         if (self.time is None): self.time = Timestamp.utcnow()
         delay = Timestamp.utcnow() - self.time
         self.delay = int(delay.total_seconds() * 1e6)
-
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def from_json(cls, data: List, venue: Venue):
-        if not isinstance(data, List): data = [data]
-        func = {Venue.BINANCE: cls._from_binance,
-                Venue.PMARKET: cls._from_pmarket}
-        return map(func[venue], data)
-
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def _from_binance(cls, data: Dict[str, Any]):
-        data = data.get("data", None)
-        if data is None: return None
-        return cls(venue = Venue.BINANCE, symbol = data["s"][: -4],
-            #time = Timestamp.utcfromtimestamp(int(data["E"]) / 1e3),
-            time = Timestamp.utcnow(), # TODO: account for secs of discrepancy from broker
-            pa = data["a"], qa = data["A"], pb = data["b"], qb = data["B"])
-
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def _from_pmarket(cls, data: Dict[str, Any]):
-        template = [{"price": 0.0, "size": 0.0}]
-        if data is None: return None
-        if (data["event_type"] != "book"): return
-        A = data.get("asks", list())
-        B = data.get("bids", list())
-        if not A: A = template.copy()
-        if not B: B = template.copy()
-        A, B = A[-1], B[-1]
-        tick = cls(venue = Venue.PMARKET, symbol = data.get("asset_id", None),
-            #time = Timestamp.utcfromtimestamp(int(data["timestamp"]) / 1e3),
-            time = Timestamp.utcnow(), # TODO: account for secs of discrepancy from broker
-            pa = A["price"], qa = A["size"], pb = B["price"], qb = B["size"])
-        return tick
     
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __repr__(self):
@@ -132,7 +85,7 @@ class Tick:
 #▄▄▄▄▄▄▄▄▄
 @dataclass
 class Candle:
-    tf: TimeFrame; venue: Venue; symbol: str; volume: int = None; 
+    tf: TimeFrame; venue: str; symbol: str; volume: int = None; 
     oa: float = None; ha: float = None; la: float = None; ca: float = None
     ob: float = None; hb: float = None; lb: float = None; cb: float = None
     time: Timestamp = None
@@ -146,10 +99,10 @@ class Candle:
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __repr__(self):
-        if self.tf.name.startswith("S"): interval = f"{self.time:%Y/%m/%d %H:%M:%S}-{self._time_close:%S}"
-        elif self.tf.name.startswith("M"): interval = f"{self.time:%Y/%m/%d %H:%M}-{self._time_close:%H:%M}"
-        elif self.tf.name.startswith("H"): interval = f"{self.time:%Y/%m/%d %H:%M}-{self._time_close:%H:%M}"
-        elif self.tf.name.startswith("D"): interval = f"{self.time:%Y/%m/%d}-{self._time_close:%Y/%m/%d}"
+        if self.tf.is_unit("S"): interval = f"{self.time:%Y/%m/%d %H:%M:%S}-{self._time_close:%S}"
+        elif self.tf.is_unit("M"): interval = f"{self.time:%Y/%m/%d %H:%M}-{self._time_close:%H:%M}"
+        elif self.tf.is_unit("H"): interval = f"{self.time:%Y/%m/%d %H:%M}-{self._time_close:%H:%M}"
+        elif self.tf.is_unit("D"): interval = f"{self.time:%Y/%m/%d}-{self._time_close:%Y/%m/%d}"
         else: interval = f"{self.time:%Y/%m/%d %H:%M:%S.%f}-{self._time_close:%Y/%m/%d %H:%M:%S.%f}"
         return f"Candle({self.tf.name} @ {interval} | {self.venue}.{self.symbol} | " \
             f"O:{self.oa}, H:{self.ha}, L:{self.la}, C:{self.ca} | V:{self.volume})"
@@ -226,13 +179,14 @@ class Bundle:
     MIN_N_TICKSPS, MAX_N_TICKSPS = 5_000, 100_000
     MIN_N_CANDLES, MAX_N_CANDLES = 10_000, 1_000_000
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def __init__(self, ntps: int = None, ncpf: int = None, preload: dict = None):
+    def __init__(self, ntps: int = None, ncpf: int = None,
+             preload: dict = None, mtfr: TimeFrame = None):
 
         self._start = Timestamp.utcnow()
         self._tick_first = self._tick_last = None
-        
         if ntps is None: ntps = self.MIN_N_TICKSPS
         if ncpf is None: ncpf = self.MIN_N_CANDLES
+        if mtfr is None: self._MTR = TimeFrame.MIN
         self._n_ticks_max = int(ntps * ncpf / 100)
         self._NT, self._NC = int(ntps), int(ncpf)
 
@@ -284,8 +238,8 @@ class Bundle:
             for tf in TimeFrame:
                 self._candles[tf][key] = self._queue(self._NC)
 
-        close_at = tick.time + TimeFrame.MIN.value
-        close_at = close_at.floor(TimeFrame.MIN.value)
+        close_at = tick.time + self._MTR.value
+        close_at = close_at.floor(self._MTR.value)
 
         if close_at not in self._ticks[key]:
             self._ticks[key][close_at] = self._queue(self._NT)
@@ -303,13 +257,13 @@ class Bundle:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def resample_ticks(self, time: Timestamp = None):
         if (time is None): time = Timestamp.utcnow()
-        closed_at = time.floor(TimeFrame.MIN.value)
-        opened_at = closed_at - TimeFrame.MIN.value
+        closed_at = time.floor(self._MTR.value)
+        opened_at = closed_at - self._MTR.value
 
         candles: OrderedDict = None
         for key, candles in self._ticks.items():
             ticks: deque = candles.get(closed_at, deque())
-            candle = Candle(TimeFrame.MIN, *key, time = opened_at)
+            candle = Candle(self._MTR, *key, time = opened_at)
             for tick in ticks: candle.on_tick(tick)
             while (self._count[key] >= self._n_ticks_max):
                 n_drop = len(candles.popitem(last = False)[1])
@@ -320,13 +274,12 @@ class Bundle:
     def resample_candles(self, time: Timestamp = None):
         if (time is None): time = Timestamp.utcnow()
 
-        tf_opt: TimeFrame = None
-        for tf_upd, tf_opt in TimeFrame.updatable(time):
+        tf_opt: TimeFrame = None; tf_upd: TimeFrame = None
+        for tf_upd, tf_opt in TimeFrame.updatable(time, self._MTR):
             time_candle: Timestamp = time - tf_upd.value
-            n_candles = tf_upd.value // tf_opt.value
             for key in self.symbols:
                 candle = Candle(tf_upd, *key, time = time_candle)
-                for n in range(- n_candles, 0):
+                for n in range(- int(tf_upd / tf_opt), 0):
                     try: candle_lower = self._candles[tf_opt][key][n]
                     except IndexError: continue
                     candle.on_candle_lower(candle_lower)

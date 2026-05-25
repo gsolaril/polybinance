@@ -2,10 +2,7 @@
 import asyncio
 from argparse import ArgumentParser
 from typing import Any, Type
-from strats import Test
-from src.utils import Log, TimeFrame as TF
-from src.market import Datafeed, Executor
-from src.strategy import On, Strategy
+from src import *
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -31,14 +28,16 @@ async def main():
     args = parser.parse_args()
     Main = globals().get(getattr(args, "strategy"), Test)
     params = parse_args(getattr(args, "params"))
-    
-    strategy: Strategy = Main(**params)
-    datafeed = Datafeed(callbacks = On.callbacks)
-    executor = Executor(datafeed = datafeed)
-    strategy.link(datafeed, executor)
 
+    strategy: Strategy = Main(**params)
+    eb = ExecBus(connectors = [ExecBinancePerp, ExecPolymarket])
+    db = DataBus(connectors = [DataBinancePerp, DataPolymarket],
+        callbacks = On.callbacks)
+    strategy.link(db, eb)
+
+    On.bind(Polymarket)
     On.start_cron()
-    try: await datafeed.run()
+    try: await db.run()
     except BaseException as EXC:
         Log.exception(EXC); raise
     finally:

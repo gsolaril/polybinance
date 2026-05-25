@@ -1,4 +1,5 @@
 aiohttp
+bidict
 loguru
 numpy
 pandas
