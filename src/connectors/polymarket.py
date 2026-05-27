@@ -1,24 +1,44 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 import asyncio, json, sys, os
+from dataclasses import dataclass
+from collections import deque
 from bidict import bidict
 from tqdm import tqdm
-from typing import Any, Callable, List, Dict
+from typing import Any, List, Dict
 from pandas import Timestamp, Timedelta
 from aiohttp import ClientSession
-from py_clob_client.client import ClobClient, OrderArgs
+from eth_account import Account
+from polymarket import AcceptedOrder, AsyncSecureClient, RelayerApiKey
 from src.connectors.base import Exchange, DataConnector, ExecConnector
-from src.models import Order, Tick, Bundle
-from src.utils import Config, TimeFrame, Log
+from src.models import Order, Tick, Response
+from src.utils import CONFIG, SYMBOLS, TimeFrame, Log
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class Polymarket(Exchange):
-
     VENUE = "Polymarket"
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @dataclass(frozen = True)
+    class Auth:
+        relayer_key: str
+        private_key: str
+        relayer_address: str
+        wallet_address: str = None
+        #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+        def __post_init__(self):
+            account = Account.from_key(self.private_key)
+            address = getattr(account, "address")
+            if self.wallet_address is not None: return
+            object.__setattr__(self, "wallet_address", address)
+
+    AUTH = Auth(**CONFIG["POLYMARKET"])
     URL_IDS = "https://gamma-api.polymarket.com"
+    URL_API = "https://clob.polymarket.com"
+
     SYMBOLS = bidict[str, str]()
     OFFSET = Timedelta(0)
+    STATUS = {"live": "OK"}
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -31,6 +51,10 @@ class Polymarket(Exchange):
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def symbol_to_local(cls, symbol_venue: str):
         return cls.SYMBOLS.inv.get(symbol_venue, None)
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def status_to_local(cls, response: dict):
+        return cls.STATUS.get(response["status"], None)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def _extract_ids(cls, event: Dict[str, Any]):
@@ -115,12 +139,12 @@ class Polymarket(Exchange):
 
         symbols = [*cls.SYMBOLS]
         if not symbols:
-            for S in Config.symbols:
-                for T in Config.timeframes:
+            for S in SYMBOLS:
+                for T in TimeFrame.polyevents:
                     symbols.append(f"{S}+{T!r}")
                     symbols.append(f"{S}-{T!r}")
         
-        Log.info(f"Retrieving Polymarket token IDs for: {[*symbols]}")
+        Log.info(f"Retrieving Polymarket IDs for:\n -> " + str.join(", ", symbols))
 
         tasks = dict.fromkeys(cls.st_split(S)[: 2] for S in symbols)
         async with ClientSession(cls.URL_IDS + "/events/") as session:
@@ -140,10 +164,10 @@ class Polymarket(Exchange):
             verbose.append(f"  • {su} => " + ids["+"])
             verbose.append(f"  • {sd} => " + ids["-"])
         Log.success("Updated Polymarket IDs...\n" + str.join("\n", verbose))
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    cron = {update: TimeFrame.M5.value}
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    cron = {update: TimeFrame.M5}
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-asyncio.run(Polymarket.update(lookback = 12))
+asyncio.run(Polymarket.update(lookback = 6))
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -153,6 +177,7 @@ class DataPolymarket(Polymarket, DataConnector):
 
     URL_API = "https://gamma-api.polymarket.com/events"
     URL_WS = "wss://ws-subscriptions-clob.polymarket.com"
+    IGNORE_TIMEFRAMES = None
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def get_channels_clob(self):
@@ -196,27 +221,43 @@ class DataPolymarket(Polymarket, DataConnector):
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class ExecPolymarket(Polymarket, ExecConnector):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __init__(self, auth: Polymarket.Auth = None):
+        if (auth is None): auth = Polymarket.AUTH
+        self.responses = deque(maxlen = 10000)
+        self.client, self.auth = None, auth
 
-    URL_API = "https://clob.polymarket.com"
-
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def init_client(self, auth: Polymarket.Auth):
+        Log.warning("Initializing Polymarket exec client...")
+        client_secure = await AsyncSecureClient.create(private_key = auth.private_key,
+          api_key = RelayerApiKey(key = auth.relayer_key, address = auth.relayer_address))
+        self.client = await client_secure.setup_gasless_wallet()
+        await (await self.client.setup_trading_approvals()).wait()
+        await client_secure.close()
+        
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def send(self, order: Order):
-        #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-        def send(order: Order):
-            clob = ClobClient(self.URL_API, 137,
-              key = Config.auth_pmarket.api_key)
-            args = OrderArgs(size = abs(order.size),
-                token_id = self.SYMBOLS[order.symbol],
-                price = order.price, side = order.side)
-            payload = clob.create_order(args)
-            return clob.post_order(payload)
+        if (self.client is None): await self.init_client(self.auth)
+        response_json: dict = (await self.client.place_limit_order(
+            side = order.side.upper(), price = str(order.price),
+            token_id = self.symbol_to_venue(order.symbol),
+            size = str(abs(order.size) * 100))).model_dump()
 
-        return await asyncio.to_thread(send, order)
+        print("RESPONSE JSON:\n -> %s\n" % response_json)
+        response_json["status"] = self.status_to_local(response_json)
+        response = Response(order, **response_json)
+        self.responses.append(response)
+        return response
+        
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 if (__name__ == "__main__"):
-    async def log(_, tick: Tick): return Log.debug(tick.__dict__)
-    asyncio.run(DataPolymarket(callbacks = [log]).connect())
+    #async def log(_, tick: Tick): return Log.debug(tick.__dict__)
+    #asyncio.run(DataPolymarket(callbacks = [log]).connect())
+
+    order = Order(price = 0.01, size = 0.01, side = "buy",
+                  venue = "Polymarket",  symbol = "BTC+M5")
+    asyncio.run(ExecPolymarket.send(order))

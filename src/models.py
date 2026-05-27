@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Set
 from collections import OrderedDict
 from pandas import Timestamp, Timedelta
 from pandas import Series, DataFrame, concat
-from .utils import Config, TimeFrame, Log
+from .utils import TimeFrame, Log
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -27,12 +27,8 @@ class Symbol: # TODO: Not yet being used.
 class Order:
     venue: str; symbol: str; size: float
     price: float = None; comment: str = None
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def __dict__(self): return asdict(self)
-
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __post_init__(self):
-
         self.symbol = self.symbol.upper()
         self.symbol = self.symbol.replace("/", "")
         self.symbol = self.symbol.replace(":", "")
@@ -45,6 +41,31 @@ class Order:
         self.time = Timestamp.utcnow()
         ts = int(self.time.timestamp() * 1e6)
         self.UID = numpy.base_repr(ts, base = 36).upper()
+    #▄▄▄▄▄▄▄▄▄▄
+    @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __dict__(self): return asdict(self)
+
+#▄▄▄▄▄▄▄▄▄▄▄
+@dataclass#█▄▄▄▄▄▄▄▄▄
+class Response(Order):
+    status: str = None
+    EID: str = None; UID: str = None
+    time_place: Timestamp = None
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __init__(self, order: Order, **kwargs):
+        super().__init__(**order.__dict__)
+        self.time_order = order.time
+        if self.time_place is None:
+            self.time_place = Timestamp.utcnow()
+        self.status = kwargs["status"]
+        self.UID = order.UID
+        self.EID = kwargs["order_id"]
+        self.time = order.time
+
+    #▄▄▄▄▄▄▄▄▄▄
+    @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __dict__(self): return asdict(self)
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -180,13 +201,16 @@ class Bundle:
     MIN_N_CANDLES, MAX_N_CANDLES = 10_000, 1_000_000
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, ntps: int = None, ncpf: int = None,
-             preload: dict = None, mtfr: TimeFrame = None):
+        preload: dict = None, ignore: Set[TimeFrame] = None):
+
+        if ignore is None:
+            ignore = set()
+        self.ignore_tfs = ignore.copy()
 
         self._start = Timestamp.utcnow()
         self._tick_first = self._tick_last = None
         if ntps is None: ntps = self.MIN_N_TICKSPS
         if ncpf is None: ncpf = self.MIN_N_CANDLES
-        if mtfr is None: self._MTR = TimeFrame.MIN
         self._n_ticks_max = int(ntps * ncpf / 100)
         self._NT, self._NC = int(ntps), int(ncpf)
 
@@ -238,14 +262,19 @@ class Bundle:
             for tf in TimeFrame:
                 self._candles[tf][key] = self._queue(self._NC)
 
-        close_at = tick.time + self._MTR.value
-        close_at = close_at.floor(self._MTR.value)
+        close_at = tick.time + TimeFrame.MIN.value
+        close_at = close_at.floor(TimeFrame.MIN.value)
 
         if close_at not in self._ticks[key]:
             self._ticks[key][close_at] = self._queue(self._NT)
 
         self._ticks[key][close_at].append(tick)
         self._count[key] = self._count[key] + 1
+
+        if (self._count[key] >= self._n_ticks_max):
+            candles: OrderedDict = self._ticks[key]
+            n_drop = len(candles.popitem(last = False)[1])
+            self._count[key] = self._count[key] - n_drop
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_candle(self, candle: Candle):
@@ -256,18 +285,16 @@ class Bundle:
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def resample_ticks(self, time: Timestamp = None):
+        if TimeFrame.MIN in self.ignore_tfs: return
         if (time is None): time = Timestamp.utcnow()
-        closed_at = time.floor(self._MTR.value)
-        opened_at = closed_at - self._MTR.value
+        closed_at = time.floor(TimeFrame.MIN.value)
+        opened_at = closed_at - TimeFrame.MIN.value
 
         candles: OrderedDict = None
         for key, candles in self._ticks.items():
             ticks: deque = candles.get(closed_at, deque())
-            candle = Candle(self._MTR, *key, time = opened_at)
+            candle = Candle(TimeFrame.MIN, *key, time = opened_at)
             for tick in ticks: candle.on_tick(tick)
-            while (self._count[key] >= self._n_ticks_max):
-                n_drop = len(candles.popitem(last = False)[1])
-                self._count[key] = self._count[key] - n_drop
             self.on_candle(candle)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -275,22 +302,23 @@ class Bundle:
         if (time is None): time = Timestamp.utcnow()
 
         tf_opt: TimeFrame = None; tf_upd: TimeFrame = None
-        for tf_upd, tf_opt in TimeFrame.updatable(time, self._MTR):
-            time_candle: Timestamp = time - tf_upd.value
+        for tf_upd, tf_opt in TimeFrame.updatable(time):
+            if tf_upd in self.ignore_tfs: continue
+            time_candle = time - tf_upd.value
             for key in self.symbols:
                 candle = Candle(tf_upd, *key, time = time_candle)
                 for n in range(- int(tf_upd / tf_opt), 0):
                     try: candle_lower = self._candles[tf_opt][key][n]
                     except IndexError: continue
                     candle.on_candle_lower(candle_lower)
-                self.on_candle(candle)   
+                self.on_candle(candle)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __repr__(self):
 
         df = dict()
         df_lines = list[str]()
-        keys = dict()
+        keys: dict = None
         for tf, keys in self._candles.items():
             df[tf] = dict()
             for key, candles in keys.items():

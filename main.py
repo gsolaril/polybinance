@@ -17,6 +17,15 @@ def parse_args(pairs: list[str]):
     return params
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+async def test():
+    exec = ExecPolymarket()
+    order = Order(price = 0.01, size = 0.05,
+        venue = "Polymarket",  symbol = "BTC+M5")
+    Log.debug("Sending order: %s" % order.__dict__)
+    response = await exec.send(order)
+    Log.debug("Response: %s" % response.__dict__)
+
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 async def main():
     parser = ArgumentParser()
     Main: Type[Strategy] = None
@@ -49,4 +58,4 @@ async def main():
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-if (__name__ == "__main__"): asyncio.run(main())
+if (__name__ == "__main__"): asyncio.run(test())

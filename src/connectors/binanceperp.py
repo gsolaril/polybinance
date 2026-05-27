@@ -1,18 +1,25 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 import asyncio, json, hmac, hashlib
+from dataclasses import dataclass
 from urllib.parse import urlencode
-from typing import Any, Callable, List, Dict
+from typing import Any, List, Dict
 from pandas import Timestamp, Timedelta
 from aiohttp import ClientSession
 from src.connectors.base import Exchange, DataConnector, ExecConnector
-from src.models import Order, Tick, Candle, Bundle
-from src.utils import Config, TimeFrame, Log
+from src.models import Order, Tick, Candle
+from src.utils import CONFIG, SYMBOLS, TimeFrame, Log
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class BinancePerp(Exchange):
     VENUE = "BinancePerp"
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @dataclass(frozen = True)
+    class Auth:
+        key: str; secret: str
+
+    AUTH = Auth(**CONFIG["BINANCE"])
     URL_WS = "wss://fstream.binance.com"
     URL_API = "https://fapi.binance.com/fapi/v1"
     OFFSET = Timedelta(0)
@@ -20,7 +27,7 @@ class BinancePerp(Exchange):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def signature(cls, payload: Dict[str, Any]):
-        hmac_key = Config.auth_binance.secret.encode("utf-8")
+        hmac_key = cls.AUTH.secret.encode("utf-8")
         hmac_msg = urlencode(payload, doseq = True).encode("utf-8")
         signature = hmac.new(hmac_key, hmac_msg, hashlib.sha256)
         return signature.hexdigest()
@@ -53,17 +60,18 @@ class BinancePerp(Exchange):
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class DataBinancePerp(BinancePerp, DataConnector):
     
+    IGNORE_TIMEFRAMES = {TimeFrame.MIN}
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def get_channels_ticks(self):
         key = "usdt@bookTicker"
-        streams = [S.lower() + key for S in Config.symbols]
+        streams = [S.lower() + key for S in SYMBOLS]
         payload = {"method": "SUBSCRIBE", "params": streams, "id": 1}
         return self.URL_WS + "/public/stream", payload
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def get_channels_klines(self):
         key = "usdt_perpetual@continuousKline_1s"
-        streams = [S.lower() + key for S in Config.symbols]
+        streams = [S.lower() + key for S in SYMBOLS]
         payload = {"method": "SUBSCRIBE", "params": streams, "id": 1}
         return self.URL_WS + "/market/stream", payload
 
@@ -125,7 +133,7 @@ class ExecBinancePerp(BinancePerp, ExecConnector):
         
         url = self.URL_API + "/order"
         args = {"url": url, "json": self.to_payload(order)}
-        args["headers"] = {"X-MBX-APIKEY": Config.auth_binance.api_key}
+        args["headers"] = {"X-MBX-APIKEY": self.AUTH.key}
         
         async with ClientSession() as session:
             async with session.post(**args) as response:

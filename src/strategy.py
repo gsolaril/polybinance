@@ -28,7 +28,13 @@ class On:
     def bind(cls, obj: object):
         
         if getattr(obj, "_is_bound", False): return
-        cls._cron_freqs = getattr(obj, "cron", dict[Any, Any]())
+        cls._cron_freqs = dict[Callable, TimeFrame]()
+        owner = obj if isinstance(obj, type) else type(obj)
+        cron: dict = getattr(obj, "cron", dict[Any, Any]())
+        for method, freq in cron.items():
+            if isinstance(method, classmethod):
+                method = method.__get__(owner, owner)
+            cls._cron_freqs[method] = freq
 
         for name in dir(obj):
             method = getattr(obj, name, None)
@@ -107,7 +113,7 @@ class Strategy:
     def get(self, tf: Set = None, symbols: Dict = None,
                   until: Timestamp = None, **kwargs):
         dfs = list[DataFrame]()
-        assert self._data is not None, self._link_error("Data", "Connectors")
+        assert self._data is not None, self._link_error("Data", "Bus")
         if symbols is None: symbols = {K: set() for K in self._data._conns}
         for venue, symbol_array in symbols.items():
             assert venue in self._data._conns, self._link_error("Data", venue)
@@ -118,7 +124,7 @@ class Strategy:
         return concat(dfs)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def send(self, order: Order):
-        assert self._exec is not None, self._link_error("Exec", "Connectors")
+        assert self._exec is not None, self._link_error("Exec", "Bus")
         conn = self._exec._conns.get(order.venue, None)
         assert conn is not None, self._link_error("Exec", order.venue)
         self.orders[order.UID] = await conn.send(order) 

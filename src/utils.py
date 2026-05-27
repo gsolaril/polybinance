@@ -5,6 +5,7 @@ from configparser import ConfigParser
 from typing import Any, List, NamedTuple, Generator, Tuple
 from pandas import Timestamp, Timedelta
 from enum import Enum, EnumMeta
+from eth_account import Account
 from sympy import divisors
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -99,19 +100,11 @@ class TimeFrame(Enum, metaclass = Meta):
             yield tf_div, _divisors[tf_div][-1]
         if (tf_max != mtf):
             yield tf_max, _divisors[tf_max][-1]
-#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-#▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-polyevents = CONFIG["STRATEGY"]["polyevents"].split(" ")
-#▄▄▄▄▄▄▄▄▄▄▄
-class Config:
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    class Auth(NamedTuple): api_key: str; secret: str
-    """AUTH"""
-    auth_binance: Auth = Auth(CONFIG["BINANCE"]["api_key"], CONFIG["BINANCE"]["secret"])
-    auth_pmarket: Auth = Auth(CONFIG["POLYMARKET"]["api_key"], CONFIG["POLYMARKET"]["secret"])
-    """STRATEGY"""
-    symbols: List[str] = CONFIG["STRATEGY"]["symbols"].split(" ")
-    timeframes: List[TimeFrame] = TimeFrame.from_array(polyevents)
+
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+TimeFrame.polyevents = TimeFrame.from_array(CONFIG["PREDEFINED"]["polyevents"].split(" "))
+
+SYMBOLS = frozenset(CONFIG["PREDEFINED"]["symbols"].split(" "))
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -123,16 +116,25 @@ if (__name__ == "__main__"):
     #Log.debug("This is a debug message.")
     #Log.trace("This is a trace message.")
     #Log.info(f"This is an info message. CONFIG:\n{CONFIG}")
-    for tf in TimeFrame: print(">>", tf.name, ":", tf.value, "/", tf.ts, "seconds")
-    print(">> MIN =", TimeFrame.MIN.name, ":", TimeFrame.MIN.value, "/", TimeFrame.MIN.ts, "seconds")
-    print(">> MAX =", TimeFrame.MAX.name, ":", TimeFrame.MAX.value, "/", TimeFrame.MAX.ts, "seconds")
+    print(title := "General TimeFrame testing...")
+    print("\u203E" * len(title))
+    print("Enum-to-value mapping:")
+    for tf in TimeFrame: print(" >>", tf.name, ":", tf.value, "/", tf.ts, "seconds")
+    print(" >> MIN =", TimeFrame.MIN.name, ":", TimeFrame.MIN.value, "/", TimeFrame.MIN.ts, "seconds")
+    print(" >> MAX =", TimeFrame.MAX.name, ":", TimeFrame.MAX.value, "/", TimeFrame.MAX.ts, "seconds")
+    print(" >> MAX/MIN RATIO =", TimeFrame.RATIO)
     print("Testing math ops")
-    print(">> S1 + S2 =", TimeFrame.S1 + TimeFrame.S2)
-    print(">> S1 - S2 =", TimeFrame.S1 - TimeFrame.S2)
-    print(">> S1 / S2 =", TimeFrame.S1 / TimeFrame.S2)
-    print(">> S1 // S2 =", TimeFrame.S1 // TimeFrame.S2)
-    print(">> S1 % S2 =", TimeFrame.S1 % TimeFrame.S2)
-    print(">> S1 == S2 =", TimeFrame.S1 == TimeFrame.S2)
-    print(">> S1 != S2 =", TimeFrame.S1 != TimeFrame.S2)
-    print(">> S1 >= S2 =", TimeFrame.S1 >= TimeFrame.S2)
-    print(TimeFrame.RATIO)
+    print(" >> S1 + S2 =", TimeFrame.S1 + TimeFrame.S2)
+    print(" >> S1 - S2 =", TimeFrame.S1 - TimeFrame.S2)
+    print(" >> S1 / S2 =", TimeFrame.S1 / TimeFrame.S2)
+    print(" >> S1 // S2 =", TimeFrame.S1 // TimeFrame.S2)
+    print(" >> S1 % S2 =", TimeFrame.S1 % TimeFrame.S2)
+    print(" >> S1 == S2 =", TimeFrame.S1 == TimeFrame.S2)
+    print(" >> S1 != S2 =", TimeFrame.S1 != TimeFrame.S2)
+    print(" >> S1 >= S2 =", TimeFrame.S1 >= TimeFrame.S2)
+    mtf = TimeFrame.H1
+    time = Timestamp.utcnow().ceil("3h")
+    print(f"Divisors for \"{time:%H:%M:%S}\" starting from \"{mtf.name}\":")
+    result_iter = TimeFrame.updatable(time, mtf)
+    for tf_upd, tf_opt in result_iter:
+        print(" >>", tf_upd.name, "<-", tf_opt.name)

@@ -3,7 +3,7 @@ import asyncio, json
 from aiohttp import ClientSession, WSMsgType
 from pandas import Timestamp, Timedelta
 from typing import Any, Dict, List, Callable
-from ..utils import Log, TimeFrame, Config
+from ..utils import Log, TimeFrame
 from ..models import Order, Bundle
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -52,14 +52,13 @@ class DataConnector(metaclass = ConnectorMeta):
     
     CALLBACKS: dict[Callable, Callable]
     MAX_QUEUE_LENGTH = 2 * TimeFrame.RATIO
-    MIN_TIMEFRAME_RESAMPLE = TimeFrame.MIN
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def __init__(self, callbacks: List[Callable], *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._bundle = Bundle(ncpf = self.MAX_QUEUE_LENGTH,
-                        mtfr = self.MIN_TIMEFRAME_RESAMPLE)
-        # TODO: FIXME: TEST MTFR!!!! RESAMPLE SHOULD ONLY AFFECT CANDLES > MTFR
+    IGNORE_TIMEFRAMES = ...
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __init__(self, callbacks: List[Callable]):
         self._callbacks = callbacks
+        self._bundle = Bundle(
+            ncpf = self.MAX_QUEUE_LENGTH,
+            ignore = self.IGNORE_TIMEFRAMES)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def run(self):
@@ -68,7 +67,7 @@ class DataConnector(metaclass = ConnectorMeta):
             for get_channels, on_message in self.CALLBACKS.items():
                 task = self.connect(get_channels, on_message)
                 tasks.append(asyncio.create_task(task))
-            await asyncio.gather(*tasks)
+            await asyncio.gather(*tasks, return_exceptions = True)
         except KeyboardInterrupt: Log.success("Exiting...")
         except Exception as EXC: Log.exception(EXC)
     
