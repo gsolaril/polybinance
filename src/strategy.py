@@ -3,9 +3,9 @@ import asyncio
 from dataclasses import dataclass
 from asyncio import CancelledError
 from typing import Any, Callable, ClassVar, Dict, List, Set
-from pandas import DataFrame, Timestamp
+from src.connectors.base import DataBus, ExecBus
+from pandas import DataFrame, Timestamp, concat
 from src.models import Order, Tick, Candle
-from src.market import Datafeed, Executor
 from src.utils import Log, TimeFrame
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -28,7 +28,13 @@ class On:
     def bind(cls, obj: object):
         
         if getattr(obj, "_is_bound", False): return
-        cls._cron_freqs = getattr(obj, "cron", dict[Any, Any]())
+        cls._cron_freqs = dict[Callable, TimeFrame]()
+        owner = obj if isinstance(obj, type) else type(obj)
+        cron: dict = getattr(obj, "cron", dict[Any, Any]())
+        for method, freq in cron.items():
+            if isinstance(method, classmethod):
+                method = method.__get__(owner, owner)
+            cls._cron_freqs[method] = freq
 
         for name in dir(obj):
             method = getattr(obj, name, None)
@@ -88,8 +94,8 @@ class Strategy:
         self._start = Timestamp.utcnow()
         self.cron = dict[Callable, TimeFrame]()
         self.orders = dict[str, Dict[str, Any]]()
-        self.datafeed, self.executor = None, None
-        self.data = None
+        self._data: DataBus = None
+        self._exec: ExecBus = None
         self.setup()
         On.bind(self)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -97,18 +103,31 @@ class Strategy:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def add_cron(self, method: Callable, freq: TimeFrame):
         self.cron[method] = freq
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def link(self, databus: DataBus, execbus: ExecBus):
+        self._data, self._exec = databus, execbus
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def link(self, datafeed: Datafeed, executor: Executor):
-        self._datafeed, self._executor = datafeed, executor
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def get(self, tf: Set = None, symbol: Set = None, until: Timestamp = None, **kwargs):
-        return self._datafeed._bundle.get(tf = tf, symbol = symbol, until = until, **kwargs)
-
+    def _link_error(self, ctype: str, venue: str = "Bus"):
+        return f"\"{ctype}{venue}\" not linked"
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def get(self, tf: Set = None, symbols: Dict = None,
+                  until: Timestamp = None, **kwargs):
+        dfs = list[DataFrame]()
+        assert self._data is not None, self._link_error("Data", "Bus")
+        if symbols is None: symbols = {K: set() for K in self._data._conns}
+        for venue, symbol_array in symbols.items():
+            assert venue in self._data._conns, self._link_error("Data", venue)
+            bundle = self._data._conns[venue]._bundle
+            symbol_set = {(venue, S) for S in symbol_array}
+            df = bundle.get(tf, symbol_set, until, **kwargs)
+            if not df.empty: dfs.append(df)
+        return concat(dfs)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def send(self, order: Order):
-        assert self._executor is not None, "Executor not linked"
-        response: Dict[str, Any] = await self._executor.send(order)
-        self.orders[order.UID] = response 
+        assert self._exec is not None, self._link_error("Exec", "Bus")
+        conn = self._exec._conns.get(order.venue, None)
+        assert conn is not None, self._link_error("Exec", order.venue)
+        self.orders[order.UID] = await conn.send(order) 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_kill(self): ...
     

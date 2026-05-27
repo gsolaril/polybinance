@@ -2,10 +2,7 @@
 import asyncio
 from argparse import ArgumentParser
 from typing import Any, Type
-from strats import Test
-from src.utils import Log, TimeFrame as TF
-from src.market import Datafeed, Executor
-from src.strategy import On, Strategy
+from src import *
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -20,6 +17,15 @@ def parse_args(pairs: list[str]):
     return params
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+async def test():
+    exec = ExecPolymarket()
+    order = Order(price = 0.01, size = 0.05,
+        venue = "Polymarket",  symbol = "BTC+M5")
+    Log.debug("Sending order: %s" % order.__dict__)
+    response = await exec.send(order)
+    Log.debug("Response: %s" % response.__dict__)
+
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 async def main():
     parser = ArgumentParser()
     Main: Type[Strategy] = None
@@ -31,14 +37,16 @@ async def main():
     args = parser.parse_args()
     Main = globals().get(getattr(args, "strategy"), Test)
     params = parse_args(getattr(args, "params"))
-    
-    strategy: Strategy = Main(**params)
-    datafeed = Datafeed(callbacks = On.callbacks)
-    executor = Executor(datafeed = datafeed)
-    strategy.link(datafeed, executor)
 
+    strategy: Strategy = Main(**params)
+    eb = ExecBus(connectors = [ExecBinancePerp, ExecPolymarket])
+    db = DataBus(connectors = [DataBinancePerp, DataPolymarket],
+        callbacks = On.callbacks)
+    strategy.link(db, eb)
+
+    On.bind(Polymarket)
     On.start_cron()
-    try: await datafeed.run()
+    try: await db.run()
     except BaseException as EXC:
         Log.exception(EXC); raise
     finally:
@@ -50,4 +58,4 @@ async def main():
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-if (__name__ == "__main__"): asyncio.run(main())
+if (__name__ == "__main__"): asyncio.run(test())
