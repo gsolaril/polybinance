@@ -17,7 +17,7 @@ class BinancePerp(Exchange):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     @dataclass(frozen = True)
     class Auth:
-        key: str; secret: str
+        api_key: str; secret: str
 
     AUTH = Auth(**CONFIG["BINANCE"])
     URL_WS = "wss://fstream.binance.com"
@@ -133,7 +133,7 @@ class ExecBinancePerp(BinancePerp, ExecConnector):
         
         url = self.URL_API + "/order"
         args = {"url": url, "json": self.to_payload(order)}
-        args["headers"] = {"X-MBX-APIKEY": self.AUTH.key}
+        args["headers"] = {"X-MBX-APIKEY": self.AUTH.api_key}
         
         async with ClientSession() as session:
             async with session.post(**args) as response:
