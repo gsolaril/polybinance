@@ -17,10 +17,10 @@ def parse_args(pairs: list[str]):
     return params
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-async def test():
+async def test(): # ↑↓
     exec = ExecPolymarket()
     order = Order(price = 0.01, size = 0.05,
-        venue = "Polymarket",  symbol = "BTC+M5")
+        venue = "Polymarket",  symbol = "BTC↑M5")
     Log.debug("Sending order: %s" % order.__dict__)
     response = await exec.send(order)
     Log.debug("Response: %s" % response.__dict__)
@@ -39,8 +39,8 @@ async def main():
     params = parse_args(getattr(args, "params"))
 
     strategy: Strategy = Main(**params)
-    eb = ExecBus(connectors = [ExecBinancePerp, ExecPolymarket])
-    db = DataBus(connectors = [DataBinancePerp, DataPolymarket],
+    eb = ExecBus(connectors = ExecConnectors)
+    db = DataBus(connectors = DataConnectors,
         callbacks = On.callbacks)
     strategy.link(db, eb)
 
@@ -58,4 +58,4 @@ async def main():
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-if (__name__ == "__main__"): asyncio.run(test())
+if (__name__ == "__main__"): asyncio.run(main())

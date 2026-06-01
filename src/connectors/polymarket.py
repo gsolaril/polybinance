@@ -1,15 +1,15 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-import asyncio, json, sys, os
+import asyncio, json
+from bidict import OrderedBidict
 from dataclasses import dataclass
 from collections import deque
-from bidict import bidict
-from tqdm import tqdm
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Callable
 from pandas import Timestamp, Timedelta
 from aiohttp import ClientSession
 from eth_account import Account
-from polymarket import AcceptedOrder, AsyncSecureClient, RelayerApiKey
-from src.connectors.base import Exchange, DataConnector, ExecConnector
+from src.connectors.base import Exchange, DataStream
+from src.connectors.base import DataConnector, ExecConnector
+from polymarket import AsyncSecureClient, RelayerApiKey
 from src.models import Order, Tick, Response
 from src.utils import CONFIG, SYMBOLS, TimeFrame, Log
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -17,7 +17,6 @@ from src.utils import CONFIG, SYMBOLS, TimeFrame, Log
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class Polymarket(Exchange):
-    VENUE = "Polymarket"
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     @dataclass(frozen = True)
     class Auth:
@@ -34,9 +33,17 @@ class Polymarket(Exchange):
 
     AUTH = Auth(**CONFIG["POLYMARKET"])
     URL_IDS = "https://gamma-api.polymarket.com"
-    URL_API = "https://clob.polymarket.com"
+    URL_CONN = "https://clob.polymarket.com"
 
-    SYMBOLS = bidict[str, str]()
+    TIMEFRAME_SLUGS: dict[TimeFrame, str] = {
+        TimeFrame.M5: "{symbol}-updown-{tfi}-{tsu:.0f}",
+        TimeFrame.M15: None, #"{symbol}-updown-{tfi}-{tsu:.0f}",
+        TimeFrame.H1: None, #"{symbol}-up-to-down-{ts:%b-%d-%Y-%I%p}",
+        TimeFrame.H4: None, #"{symbol}-updown-{tfi}-{tsu:.0f}",
+    }
+    SYMBOLS = OrderedBidict()
+    MAX_SYMBOLS = 10000
+    ARROWS = {"U": "↑", "D": "↓"}
     OFFSET = Timedelta(0)
     STATUS = {"live": "OK"}
 
@@ -44,20 +51,26 @@ class Polymarket(Exchange):
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def get_offset(cls): cls.OFFSET = Timedelta(0)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def symbol_to_venue(cls, symbol_local: str):
-        return cls.SYMBOLS.get(symbol_local, None)
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def symbol_to_venue(cls, symbol: str):
+        if not symbol[10:].isdigit():
+            now = Timestamp.utcnow()
+            tf_str = symbol.split(cls.ARROWS["U"])[-1]
+            tf_str = tf_str.split(cls.ARROWS["D"])[-1]
+            time = now.floor(TimeFrame[tf_str].value)
+            symbol = f"{symbol}{time.timestamp():.0f}"
+        return cls.SYMBOLS.get(symbol, None)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def symbol_to_local(cls, symbol_venue: str):
-        return cls.SYMBOLS.inv.get(symbol_venue, None)
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def symbol_to_local(cls, symbol: str):
+        return cls.SYMBOLS.inv.get(symbol, None)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def status_to_local(cls, response: dict):
-        return cls.STATUS.get(response["status"], None)
+        return cls.STATUS.get(response["status"], None) 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def _extract_ids(cls, event: Dict[str, Any]):
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def _parse_ids(cls, event: Dict[str, Any]):
         markets = event.get("markets") or list()
         if not markets: return
 
@@ -73,20 +86,30 @@ class Polymarket(Exchange):
             except Exception: clob_ids = None
         if not isinstance(clob_ids, list): return
 
-        ids = {"+": None, "-": None}
-        key = {"up": "+", "down": "-"}
+        ids = dict.fromkeys(cls.ARROWS.values())
         if len(outcomes) != len(clob_ids): return
         for nm, token in zip(outcomes, clob_ids):
-            ids[key[str(nm).strip().lower()]] = token
-
-        if (ids["+"] is None): return
-        if (ids["-"] is None): return
+            ids[cls.ARROWS[str(nm).strip()[0]]] = token
+        if (ids[cls.ARROWS["U"]] is None): return
+        if (ids[cls.ARROWS["D"]] is None): return
         return ids
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def _event_by_slug(cls, session: ClientSession, slug: str):
-        args = {"url": cls.URL_IDS + "/events", "params": {"slug": slug}}
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def _find_event(cls, session: ClientSession,
+        symbol: str, tf: TimeFrame, time: Timestamp = None):
+
+        slug = cls.TIMEFRAME_SLUGS.get(tf, None)
+        if slug is None: return
+        symbol = symbol.strip().lower()
+        tf_str = TimeFrame.invert_nt(tf)
+        if time is None: time = Timestamp.utcnow()
+        ts_unix = time.floor(tf.value).timestamp()
+        slug = slug.format(symbol = symbol, ts = time,
+          tfs = tf.name, tfi = tf_str, tsu = ts_unix)
+        url = cls.URL_IDS + "/events"
+        
+        args = {"url": url, "params": {"slug": slug}}
         async with session.get(**args) as resp:
             if (resp.status != 200): return
             try: data = await resp.json()
@@ -94,80 +117,42 @@ class Polymarket(Exchange):
             if isinstance(data, list) and len(data): return data[0]
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def _find_events(cls, session: ClientSession, symbol: str, tf: TimeFrame,
-                    lookback: int = 12, threads: int = 20, verbose: bool = False):
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def update(cls, symbols: list[str] = None):
 
-        symbol = symbol.strip().lower()
-        semaphore = asyncio.Semaphore(threads)
-        async def get_slug(suffix: int):
-            slug = symbol + "-updown-" + TimeFrame.invert_nt(tf) + "-" + str(suffix)
-            async with semaphore: return await cls._event_by_slug(session, slug)
-
-        now = Timestamp.utcnow().timestamp()
-        start = int(now - lookback * 3600)
-        now = int(now - (now % tf.ts))
-
-        batch_size = threads * 3
-        suffixes = [*range(now, start, -tf.ts)]
-        iterator = range(len(suffixes) // batch_size)
-        if verbose: iterator = tqdm(iterator)
-
-        for index in iterator:
-            start = index * batch_size
-            batch = suffixes[start : (start + batch_size)]
-            futures = [get_slug(suffix) for suffix in batch]
-            results = await asyncio.gather(*futures)
-            for event in results:
-                if not event: continue
-                else: return event
-
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def st_split(cls, symbol: str):
-        if "+" in symbol:
-            symbol, tf_str = symbol.split("+")
-            return (symbol, TimeFrame[tf_str], "+")
-        if "-" in symbol:
-            symbol, tf_str = symbol.split("-")
-            return (symbol, TimeFrame[tf_str], "-")
-        raise ValueError(f"\"{symbol}\" has no +/-")
-
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def update(cls, lookback: int = 1):
-
-        symbols = [*cls.SYMBOLS]
-        if not symbols:
-            for S in SYMBOLS:
-                for T in TimeFrame.polyevents:
-                    symbols.append(f"{S}+{T!r}")
-                    symbols.append(f"{S}-{T!r}")
-        
+        tasks = dict()
+        if not symbols: symbols = [*SYMBOLS]
         Log.info(f"Retrieving Polymarket IDs for:\n -> " + str.join(", ", symbols))
-
-        tasks = dict.fromkeys(cls.st_split(S)[: 2] for S in symbols)
         async with ClientSession(cls.URL_IDS + "/events/") as session:
-            for S, T in tasks: tasks[(S, T)] = cls._find_events(
-                session, symbol = S, tf = T, lookback = lookback)
+            for tf in sorted(cls.TIMEFRAME_SLUGS):
+                next = Timestamp.utcnow().ceil(tf.value)
+                last = Timestamp.utcnow().floor(tf.value)
+                for symbol in symbols:
+                    key = (symbol, tf, last)
+                    tasks[key] = cls._find_event(session, symbol, tf, last)
+                    key = (symbol, tf, next)
+                    tasks[key] = cls._find_event(session, symbol, tf, next)
             results = await asyncio.gather(*tasks.values())
 
-        tasks = zip(tasks, results)
         verbose = list()
-
-        for (symbol, tf), event in tasks:
+        tasks = zip(tasks, results)
+        for (symbol, tf, ts), event in tasks:
             if event is None: continue
-            ids = cls._extract_ids(event)
+            ids = cls._parse_ids(event)
             if ids is None: continue
-            cls.SYMBOLS[su := f"{symbol}+{tf!r}"] = ids["+"]
-            cls.SYMBOLS[sd := f"{symbol}-{tf!r}"] = ids["-"]
-            verbose.append(f"  • {su} => " + ids["+"])
-            verbose.append(f"  • {sd} => " + ids["-"])
+            ti = Timestamp.timestamp(ts)
+            for arrow in cls.ARROWS.values():
+                key = f"{symbol}{arrow}{tf!r}{ti:.0f}"
+                cls.SYMBOLS[key] = ids[arrow]
+                verbose.append(f" • {key} => {ids[arrow]}")
+                if (len(cls.SYMBOLS) >= cls.MAX_SYMBOLS):
+                    cls.SYMBOLS.popitem(last = False)
+            
         Log.success("Updated Polymarket IDs...\n" + str.join("\n", verbose))
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     cron = {update: TimeFrame.M5}
-#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-asyncio.run(Polymarket.update(lookback = 6))
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+asyncio.run(Polymarket.update())
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -178,12 +163,21 @@ class DataPolymarket(Polymarket, DataConnector):
     URL_API = "https://gamma-api.polymarket.com/events"
     URL_WS = "wss://ws-subscriptions-clob.polymarket.com"
     IGNORE_TIMEFRAMES = None
-
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def get_channels_clob(self):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __init__(self, callbacks: List[Callable]):
+        super().__init__(callbacks = callbacks,
+            streams = {"clob": DataStream(
+                self.__class__.__name__ + "/clob", 
+                URL = self.URL_WS + "/ws/market",
+                on_channel = self.on_channel_clob,
+                on_message = self.on_message_clob)})
+    
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def on_channel_clob(self, streams: set[str], *args, **kwargs):
+        new_streams = set(Polymarket.SYMBOLS.values())
         payload = {"type": "subscribe", "channels": ["book"],
-                "assets_ids": [*Polymarket.SYMBOLS.values()] }
-        return self.URL_WS + "/ws/market", payload
+                    "assets_ids": list(new_streams)}
+        return new_streams, payload
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_message_clob(self, data: List[Dict]):
@@ -199,12 +193,13 @@ class DataPolymarket(Polymarket, DataConnector):
             if aid is None or tse is None: continue
             symbol = self.symbol_to_local(aid)
             if symbol is None: continue
+            symbol = symbol[:-10]
             A = entry.get("asks", list())
             B = entry.get("bids", list())
             if not A: A = template.copy()
             if not B: B = template.copy()
             ts = Timestamp.utcfromtimestamp(int(tse) / 1e3)
-            ts = Timestamp.utcnow() # ts + self.OFFSET
+            ts = Timestamp.utcnow() # = ts + self.OFFSET
             tick = Tick(venue = self.VENUE, symbol = symbol,
                     pa = A[-1]["price"], qa = A[-1]["size"],
                     pb = B[-1]["price"], qb = B[-1]["size"],
