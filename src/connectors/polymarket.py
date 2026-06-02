@@ -162,6 +162,7 @@ class DataPolymarket(Polymarket, DataConnector):
 
     URL_API = "https://gamma-api.polymarket.com/events"
     URL_WS = "wss://ws-subscriptions-clob.polymarket.com"
+    DEFAULT_PAYLOAD = {"type": "market", "custom_feature_enabled": True}
     IGNORE_TIMEFRAMES = None
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, callbacks: List[Callable]):
@@ -174,10 +175,19 @@ class DataPolymarket(Polymarket, DataConnector):
     
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_channel_clob(self, streams: set[str], *args, **kwargs):
-        new_streams = set(Polymarket.SYMBOLS.values())
-        payload = {"type": "subscribe", "channels": ["book"],
-                    "assets_ids": list(new_streams)}
-        return new_streams, payload
+        next = set(Polymarket.SYMBOLS.values())
+        new, old = next - streams, streams - next
+        payload = dict()
+        #payload = {"type": "subscribe", "channels": ["book"],
+        #       "assets_ids": [*Polymarket.SYMBOLS.values()] }
+        if new: payload.update({"assets_ids": sorted(new),
+            "channels": ["book"], "operation": "subscribe"})
+        if old: payload.update({"assets_ids": sorted(old),
+            "channels": ["book"], "operation": "unsubscribe"})
+        if not streams: # initial subscribe, no oper
+            payload.pop("operation")
+            payload.update(self.DEFAULT_PAYLOAD)
+        return old, new, payload
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_message_clob(self, data: List[Dict]):
@@ -193,7 +203,7 @@ class DataPolymarket(Polymarket, DataConnector):
             if aid is None or tse is None: continue
             symbol = self.symbol_to_local(aid)
             if symbol is None: continue
-            symbol = symbol[:-10]
+            symbol = symbol[: -10]
             A = entry.get("asks", list())
             B = entry.get("bids", list())
             if not A: A = template.copy()

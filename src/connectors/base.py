@@ -1,8 +1,9 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 import asyncio, json
 from pandas import Timestamp, Timedelta
+from aiohttp import WSMessage, WSMsgType
 from aiohttp import ClientWebSocketResponse
-from aiohttp import ClientSession, WSMsgType
+from aiohttp import ClientSession
 from typing import Any, Dict, List, Callable
 from ..utils import Log, TimeFrame
 from ..models import Order, Bundle
@@ -31,68 +32,111 @@ class Exchange(metaclass = ExchangeMeta):
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class DataStream:
 
-    VERBOSE_SUBS = """\"{name}\" reviewing subs:
-    -> URL: \"{url}\"
-    -> Streams: \"{streams}\"
-    -> Payload: \"{payload}\""""
+    BULLET = "\n\t-> "
+    VERBOSE_WSER = "\"{name}\" {stream} failed (will retry after reconnect)"
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, name: str, URL: str, 
           on_channel: Callable, on_message: Callable):
+
         self.name, self.URL, self.active = name, URL, False
         self.on_channel, self.on_message = on_channel, on_message
         self._WS: ClientWebSocketResponse = None
+        self._ping_task: asyncio.Task = None
         self.streams = set[str]()
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def verbose_subs(self, old: set, new: set):
+
+        verbose = f"\"{self.name}\", reviewing streams..."
+        if new: verbose += "\n => New (subs):"
+        for stream in sorted(new):
+            verbose += self.BULLET + stream
+        if old: verbose += "\n => Old (unsub):"
+        for stream in sorted(old):
+            verbose += self.BULLET + stream
+        return verbose
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def send_ping(self):
+
+        try: await self._WS.send_str("PING")
+        except Exception as EXC:
+            error = self.VERBOSE_WSER.format(
+                name = self.name, stream = "ping")
+            Log.exception(error, EXC)
+            self.streams.clear()
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def send_channel(self, payload: list[dict]):
+
+        if not isinstance(payload, list): payload = [payload]
+        try:
+            for item in payload:
+                await self._WS.send_json(item)
+            return True
+        except Exception as EXC:
+            error = self.VERBOSE_WSER.format(
+                name = self.name, stream = "send")
+            Log.exception(error, EXC)
+            self.streams.clear()
+            return False
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def start_channel(self, *args, **kwargs):
 
-        stop = Timestamp.utcnow() + Timedelta(seconds = 3)
-        Log.warning(f"WS for {self.name} connecting... Please wait.")
-        while (Timestamp.utcnow() <= stop):
-            if (self._WS is not None): break
-            await asyncio.sleep(0.2)
-        assert (self._WS is not None), f"\"{self.name}\" can't connect."
-
+        Log.warning(f"WS for \"{self.name}\" channel loop started.")
         self.active = True
+        
         while self.active:
+
+            if (self._WS is None) or self._WS.closed:
+                await asyncio.sleep(0.5); continue
+            # elif self.streams: await self.send_ping()
+
+            old, new, payload = self.on_channel(
+                self.streams, *args, **kwargs)
+            if (payload is None) or not payload: continue
+            next_streams = (self.streams | new) - old
+            if (self.streams == next_streams): continue
+
+            if (self._WS is None) or self._WS.closed:
+                self.streams.clear(); continue
+            Log.info(self.verbose_subs(old, new))
+            if await self.send_channel(payload):
+                self.streams = next_streams.copy()
             await asyncio.sleep(1)
-            streams, payload = self.on_channel(self.streams, *args, **kwargs)
-            if (self.streams == streams): continue
-            Log.info(self.VERBOSE_SUBS.format(streams = streams,
-                url = self.URL, payload = payload, name = self.name))
-            try: await self._WS.send_json(payload); self.streams = streams
-            except Exception as EXC:
-                return Log.exception(f"\"{self.name}\" stream error", EXC)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def start_streams(self):
 
+        self.active = True
         async with ClientSession() as session:
-            args = {"url": self.URL, "heartbeat": 3}
-            async with session.ws_connect(**args) as WS:
+            while self.active:
+                Log.info(f"\"{self.name}\" connecting to \"{self.URL}\"...")
+                async with session.ws_connect(self.URL, heartbeat = 30) as WS:
+                    try:
+                        self._WS = WS
+                        while not self.streams: await asyncio.sleep(0.5)
+                        Log.info(f"\"{self.name}\" Ready for messages.")
+                        async for message in self._WS: await self.read(message)
+                    except Exception as EXC:
+                        Log.exception(f"\"{self.name}\" WS error", EXC)
+                        self.streams.clear(); self._WS = None
+                        if self.active: await asyncio.sleep(2)
 
-                self._WS = WS
-                while not self.streams:
-                    await asyncio.sleep(1)
-                    continue
-                async for message in self._WS:
-                    if (message.type == WSMsgType.TEXT):
-                        print(message.data)
-                        try: asyncio.create_task(self.on_message(self, message.json()))
-                        except json.JSONDecodeError:
-                            Log.warning(f"\"{self.name}\" non-JSON: \"{message.data}\"")
-                            self.active = False; break
-                    elif (message.type == WSMsgType.ERROR):
-                        error = f"\"{self.name}\" WS error:"
-                        error += f"\n => {message.data!r}"
-                        Log.exception(error, WS.exception())
-                        self.active = False; break
-                    elif (message.type in {WSMsgType.CLOSED, WSMsgType.CLOSING}):
-                        error = f"\"{self.name}\" WS closed. Check just in case"
-                        Log.warning(error); self.active = False; break
-                    else:
-                        error = f"\"{self.name}\" weird type: \"{message.type}\""
-                        Log.warning(error)
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def read(self, message: WSMessage):
+
+        if (message.type == WSMsgType.TEXT):
+            try: asyncio.create_task(self.on_message(message.json()))
+            except json.JSONDecodeError:
+                if (text := message.data) in {"PING", "PONG"}: return
+                Log.warning(f"\"{self.name}\" got non-JSON: \"{text}\"")
+        elif (message.type == WSMsgType.ERROR): raise self._WS.exception()
+        elif (message.type in {WSMsgType.CLOSED, WSMsgType.CLOSING}):
+            Log.warning(f"\"{self.name}\" WS closed, reconnecting...")
+        else:
+            Log.warning(f"\"{self.name}\" weird type: \"{message.type}\"")
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████

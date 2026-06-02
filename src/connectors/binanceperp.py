@@ -66,31 +66,33 @@ class DataBinancePerp(BinancePerp, DataConnector):
             streams = {
                 "ticks": DataStream(
                     self.__class__.__name__ + "/ticks",
-                    URL = self.URL_WS + "/market/stream",
+                    URL = self.URL_WS + "/public/stream",
                     on_channel = self.on_channel_ticks,
                     on_message = self.on_message_ticks),
                 "klines": DataStream(
                     self.__class__.__name__ + "/klines",
-                    URL = self.URL_WS + "/public/stream",
+                    URL = self.URL_WS + "/market/stream",
                     on_channel = self.on_channel_klines,
                     on_message = self.on_message_klines),
-                })
+                }
+            )
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def on_channel(self, streams: set[str], key: str):
+        next = {S.lower() + key for S in SYMBOLS}
+        new, old = next - streams, streams - next
+        payload = dict()
+        if new: payload.update({"method": "SUBSCRIBE", "id": 1, "params": sorted(new)})
+        if old: payload.update({"method": "UNSUBSCRIBE", "id": 1, "params": sorted(old)})
+        return old, new, payload
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_channel_ticks(self, streams: set[str], *args, **kwargs):
-        key = "usdt@bookTicker"
-        streams = {S.lower() + key for S in SYMBOLS}
-        payload = {"method": "SUBSCRIBE", "id": 1,
-                    "params": list(streams)}
-        return streams, payload
+        return self.on_channel(streams, "usdt@bookTicker")
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_channel_klines(self, streams: set[str], *args, **kwargs):
-        key = "usdt_perpetual@continuousKline_1s"
-        new_streams = {S.lower() + key for S in SYMBOLS}
-        payload = {"method": "SUBSCRIBE", "id": 1,
-                  "params": list(new_streams)}
-        return new_streams, payload
+        return self.on_channel(streams, "usdt_perpetual@continuousKline_1s")
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_message_ticks(self, data: Dict):
