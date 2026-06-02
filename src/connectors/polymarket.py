@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from collections import deque
 from typing import Any, List, Dict, Callable
 from pandas import Timestamp, Timedelta
-from aiohttp import ClientSession
 from eth_account import Account
-from src.connectors.base import Exchange, DataStream
+from aiohttp import ClientSession, ClientWebSocketResponse
 from src.connectors.base import DataConnector, ExecConnector
+from src.connectors.base import Exchange, DataStream
 from polymarket import AsyncSecureClient, RelayerApiKey
 from src.models import Order, Tick, Response
 from src.utils import CONFIG, SYMBOLS, TimeFrame, Log
@@ -171,7 +171,12 @@ class DataPolymarket(Polymarket, DataConnector):
                 self.__class__.__name__ + "/clob", 
                 URL = self.URL_WS + "/ws/market",
                 on_channel = self.on_channel_clob,
-                on_message = self.on_message_clob)})
+                on_message = self.on_message_clob,
+                on_ping = self.on_ping)})
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def on_ping(self, WS: ClientWebSocketResponse):
+        return await WS.send_str("PING")
     
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_channel_clob(self, streams: set[str], *args, **kwargs):

@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from urllib.parse import urlencode
 from typing import Any, List, Dict, Callable
 from pandas import Timestamp, Timedelta
-from aiohttp import ClientSession
-from src.connectors.base import Exchange, DataStream
+from aiohttp import ClientSession, ClientWebSocketResponse
 from src.connectors.base import DataConnector, ExecConnector
+from src.connectors.base import Exchange, DataStream
 from src.models import Order, Tick, Candle
 from src.utils import CONFIG, SYMBOLS, TimeFrame, Log
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -68,14 +68,19 @@ class DataBinancePerp(BinancePerp, DataConnector):
                     self.__class__.__name__ + "/ticks",
                     URL = self.URL_WS + "/public/stream",
                     on_channel = self.on_channel_ticks,
-                    on_message = self.on_message_ticks),
+                    on_message = self.on_message_ticks,
+                    on_ping = self.on_ping),
                 "klines": DataStream(
                     self.__class__.__name__ + "/klines",
                     URL = self.URL_WS + "/market/stream",
                     on_channel = self.on_channel_klines,
-                    on_message = self.on_message_klines),
+                    on_message = self.on_message_klines,
+                    on_ping = self.on_ping),
                 }
             )
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def on_ping(self, WS: ClientWebSocketResponse):
+        return await WS.send_str("pong")
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_channel(self, streams: set[str], key: str):
