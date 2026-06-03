@@ -2,7 +2,7 @@
 import asyncio, json
 from bidict import OrderedBidict
 from dataclasses import dataclass
-from collections import OrderedDict, deque
+from collections import deque, OrderedDict
 from typing import Any, List, Dict, Callable
 from pandas import Timestamp, Timedelta
 from eth_account import Account
@@ -51,13 +51,19 @@ class Polymarket(Exchange):
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def get_offset(cls): cls.OFFSET = Timedelta(0)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def symbol_to_tf(cls, symbol: str):
+        tf_str = symbol.split(cls.ARROWS["U"])[-1]
+        tf_str = tf_str.split(cls.ARROWS["D"])[-1]
+        return TimeFrame[tf_str]
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def symbol_to_venue(cls, symbol: str):
         if not symbol[10:].isdigit():
             now = Timestamp.utcnow()
-            tf_str = symbol.split(cls.ARROWS["U"])[-1]
-            tf_str = tf_str.split(cls.ARROWS["D"])[-1]
-            time = now.floor(TimeFrame[tf_str].value)
+            tf = cls.symbol_to_tf(symbol)
+            time = now.floor(tf.value)
             symbol = f"{symbol}{time.timestamp():.0f}"
         return cls.SYMBOLS.get(symbol, None)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -246,11 +252,12 @@ class ExecPolymarket(Polymarket, ExecConnector):
     def __init__(self, auth: Polymarket.Auth = None):
         if (auth is None): auth = Polymarket.AUTH
         self._send_log = deque[dict](maxlen = 10000)
-        self._orders = OrderedDict[str, Response]()
+        self._ordermap = OrderedDict[str, str]()
         self._client, self._auth = None, auth
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def init_client(self, auth: Polymarket.Auth):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def init_client(self):
+        auth: Polymarket.Auth = self._auth
         Log.warning("Initializing Polymarket exec client...")
         client_secure = await AsyncSecureClient.create(private_key = auth.private_key,
           api_key = RelayerApiKey(key = auth.relayer_key, address = auth.relayer_address))
@@ -260,7 +267,9 @@ class ExecPolymarket(Polymarket, ExecConnector):
         
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def create_order(self, order: Order):
-        if (self._client is None): await self.init_client(self._auth)
+
+        now = Timestamp.utcnow()
+        if (self._client is None): await self.init_client()
         response_obj = await self._client.place_limit_order(
             side = order.side.upper(), price = str(order.price),
             token_id = self.symbol_to_venue(order.symbol),
@@ -270,41 +279,49 @@ class ExecPolymarket(Polymarket, ExecConnector):
         self._send_log.append(response_json)
         status = self.status_to_local(response_json)
         response_json["status"] = status
-        response = Response(order, **response_json)
-        args = {"action": "create", "result": "OK",
-          "UID": response.UID, "EID": response.EID}
 
-        ok = (response_json["status"] == "OK")
-        if ok: self._orders[response.UID] = response
-        else: args["result"] = "error"
+        tf = self.symbol_to_tf(order.symbol)
+        order.expiration = now.ceil(tf.value)
+        response = Response(order, **response_json)
+        args = {"action": "create", "result": "OK"}
+        if (EID := response.EID) is not None:
+            self._ordermap[response.UID] = EID
+        if (len(self._ordermap) > 10000):
+            self._ordermap.popitem(last = False)
+
+        ok = (status == "OK")
+        if not ok: args["result"] = "error"
         log = Log.success if ok else Log.error
         verbose = self.VERBOSE.format(**args)
-        log(verbose + f"\n => {response.__dict__}")
+        log(verbose + f"\n => {response!r}")
         return ok, response
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def delete_order(self, id: str):
-        order: Response = self._orders.get(id, None)
-        if (order is None):
+    async def delete_order(self, UID: str):
+        
+        now = Timestamp.utcnow()
+        if (self._client is None): await self.init_client()
+        if (UID not in self._ordermap):
             Log.error(self.VERBOSE.format(action = "delete",
-                result = "error", UID = id, EID = "Invalid ID"))
+              result = "error", UID = UID, EID = "Invalid!"))
             return False
+        EID = self._ordermap[UID]
         if (self._client is None): await self.init_client(self._auth)
-        response_obj = await self._client.cancel_order(order_id = order.EID)
+        response_obj = await self._client.cancel_order(order_id = EID)
         
         response_json = response_obj.model_dump()
         self._send_log.append(response_json)
         status = self.status_to_local(response_json)
         response_json["status"] = status
         
-        args = {"action": "delete", "result": "OK",
-                "UID": order.UID, "EID": order.EID}
+        args = {"action": "delete", "result": "OK"}
 
-        ok = (response_json["status"] == "OK")
-        if ok: order.status = "DELETED"
-        else: args["result"] = "error"
+        ok = (status == "OK")
+        if not ok: args["result"] = "error" 
+        else: self._ordermap.pop(UID)
         log = Log.success if ok else Log.error
-        log(self.VERBOSE.format(**args))
+        verbose = self.VERBOSE.format(**args)
+        log(verbose + f"\n => {UID} {EID}")
         return ok
         
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄

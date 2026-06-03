@@ -19,7 +19,8 @@ def parse_args(pairs: list[str]):
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 async def test(): # ↑↓
     exec = ExecPolymarket()
-    order = Order(price = 0.01, size = 0.5,
+    await exec.init_client()
+    order = Order(price = 0.01, size = 1,
         venue = "Polymarket",  symbol = "BTC↑M5")
     Log.debug("Sending order: %s" % order.__dict__)
     ok, response = await exec.create_order(order)

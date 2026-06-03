@@ -2,10 +2,11 @@
 import asyncio
 from dataclasses import dataclass
 from asyncio import CancelledError
+from collections import OrderedDict
 from typing import Any, Callable, ClassVar, Dict, List, Set
 from src.connectors.base import DataBus, ExecBus
 from pandas import DataFrame, Timestamp, concat
-from src.models import Order, Tick, Candle
+from src.models import Order, Tick, Response
 from src.utils import Log, TimeFrame
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -93,7 +94,7 @@ class Strategy:
     def __init__(self):
         self._start = Timestamp.utcnow()
         self.cron = dict[Callable, TimeFrame]()
-        self.orders = dict[str, Dict[str, Any]]()
+        self._orders = OrderedDict[str, dict]()
         self._data: DataBus = None
         self._exec: ExecBus = None
         self.setup()
@@ -109,9 +110,9 @@ class Strategy:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def _link_error(self, ctype: str, venue: str = "Bus"):
         return f"\"{ctype}{venue}\" not linked"
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def get(self, tf: Set = None, symbols: Dict = None,
-                  until: Timestamp = None, **kwargs):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def get_data(self, tf: Set = None, symbols: Dict = None,
+                        until: Timestamp = None, **kwargs):
         dfs = list[DataFrame]()
         assert self._data is not None, self._link_error("Data", "Bus")
         if symbols is None: symbols = {K: set() for K in self._data._conns}
@@ -122,12 +123,45 @@ class Strategy:
             df = bundle.get(tf, symbol_set, until, **kwargs)
             if not df.empty: dfs.append(df)
         return concat(dfs)
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def send(self, order: Order):
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def orders(self, UID: str = None):
+        # TODO: Shall be updated from private WebSockets in the future
+        if UID is not None: return self._orders.get(UID, None)
+        return DataFrame.from_dict(self._orders, orient = "index")
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def _get_conn(self, venue: str):
         assert self._exec is not None, self._link_error("Exec", "Bus")
-        conn = self._exec._conns.get(order.venue, None)
-        assert conn is not None, self._link_error("Exec", order.venue)
-        self.orders[order.UID] = await conn.send(order) 
+        conn = self._exec._conns.get(venue, None)
+        assert conn is not None, self._link_error("Exec", venue)
+        return conn
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def create_order(self, order: Order):
+        try:
+            conn = self._get_conn(order.venue)
+            ok, response_obj = await conn.create_order(order)
+            response = response_obj.__dict__
+            if ok: self._orders[response["UID"]] = response
+            return ok, response
+        except Exception as EXC:
+            Log.exception(EXC)
+            return False, None
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def delete_order(self, UID: str):
+        try: 
+            if UID in self._orders: order: dict = self._orders[UID]
+            else: Log.error(f"Order {UID} not found"); return False
+            conn = self._get_conn(order["venue"])
+            ok = await conn.delete_order(UID)
+            if ok: self._orders.pop(UID, None)
+            return ok
+        except Exception as EXC:
+            Log.exception(EXC)
+            return False
+
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_kill(self): ...
     
@@ -158,8 +192,8 @@ class Test(Strategy):
         str_last = time_kill.strftime(DT_FORMAT)
         str_start = self._start.strftime(DT_FORMAT)
         str_timeline = f"{str_start}-{str_last}"
-        self.get().to_csv(f"logs/{str_timeline}_candles.csv")
-        self.get(Tick).to_csv(f"logs/{str_timeline}_ticks.csv")
+        self.get_data().to_csv(f"logs/{str_timeline}_candles.csv")
+        self.get_data(Tick).to_csv(f"logs/{str_timeline}_ticks.csv")
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
