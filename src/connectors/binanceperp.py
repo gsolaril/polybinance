@@ -78,9 +78,10 @@ class DataBinancePerp(BinancePerp, DataConnector):
                     on_ping = self.on_ping),
                 }
             )
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def on_ping(self, WS: ClientWebSocketResponse):
-        return await WS.send_str("pong")
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def on_ping(self, WS: ClientWebSocketResponse, sender: bool = False):
+        if not sender: return await WS.send_str("pong")
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_channel(self, streams: set[str], key: str):

@@ -174,10 +174,12 @@ class DataPolymarket(Polymarket, DataConnector):
                 on_message = self.on_message_clob,
                 on_ping = self.on_ping)})
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def on_ping(self, WS: ClientWebSocketResponse):
-        return await WS.send_str("PING")
-    
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def on_ping(self, WS: ClientWebSocketResponse, sender: bool = False):
+        now = Timestamp.utcnow().second
+        if sender and (now % 10 == 0):
+            return await WS.send_str("PING")
+        
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_channel_clob(self, streams: set[str], *args, **kwargs):
         next = set(Polymarket.SYMBOLS.values())
