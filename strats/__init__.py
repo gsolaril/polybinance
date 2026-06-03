@@ -3,5 +3,6 @@ Strategy examples (`strats/`). Re-export names so `main.py` can import strategie
 """
 
 from src.strategy import Test
+from strats.pedro import Pedro
 
-__all__ = ["Test"]
+__all__ = ["Test", "Pedro"]

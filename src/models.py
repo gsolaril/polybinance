@@ -55,6 +55,14 @@ class Order:
     #▄▄▄▄▄▄▄▄▄▄
     @property#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __dict__(self): return asdict(self)
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __repr__(self): return self.inline()
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def inline(self):
+        verbose = "Order({venue} {symbol}, S{size} P{price} @ "
+        verbose += "{time:%Y/%m/%d %H:%M:%S.%f}, E+{DE:.1f}s | {UID})"
+        expires_in = Timedelta.total_seconds(self.expiration - self.time)
+        return verbose.format(**self.__dict__, time = self.time, DE = expires_in)
 
 #▄▄▄▄▄▄▄▄▄▄▄
 @dataclass#█▄▄▄▄▄▄▄▄▄
@@ -73,8 +81,8 @@ class Response(Order):
         self._check_expired(self.time)
         self._check_expired(self.time_place)
         self.status = kwargs["status"]
+        self.EID = kwargs["EID"]
         self.UID = order.UID
-        self.EID = kwargs["order_id"]
         self.time = order.time
 
     #▄▄▄▄▄▄▄▄▄▄
@@ -86,10 +94,10 @@ class Response(Order):
     def inline(self, nlspace: int = None):
         if (nlspace is None): sep = ", IDs: "
         else: sep = "\n" + " " * nlspace
-        verbose = "Order({venue} {symbol}, S{size} P{price}, "
+        verbose = "Order({venue} {symbol}, S{size} P{price} @ "
         expires_in = Timedelta.total_seconds(self.expiration - self.time)
         delay = 1e6 * Timedelta.total_seconds(self.time_place - self.time)
-        verbose += "{time:%Y/%m/%d %H:%M:%S.%f}, D+{DD:.0f}µs, E+{DE:.1f}s{sep}{UID} {EID} [{status}])"
+        verbose += "{time:%Y/%m/%d %H:%M:%S.%f}, D+{DD:.0f}µs, E+{DE:.1f}s{sep}{UID} {EID} | {status})"
         return verbose.format(**self.__dict__, sep = sep, time = self.time, DD = delay, DE = expires_in)
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -428,6 +436,9 @@ class Bundle:
                     if (tick.time < since): continue
                     if (tick.time > until): continue
                     yield tick.__dict__
+
+        # FIXME: REMEMBER THAT EACH POSITION WITHIN "ticks" IS A LIST, NOT A TICK OBJECT.
+        # SO, YOU NEED TO FIRST ITERATE OVER THE LIST AND YIELD EACH TICK OBJECT DIRECTLY.
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████

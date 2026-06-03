@@ -29,9 +29,9 @@ class On:
     def bind(cls, obj: object):
         
         if getattr(obj, "_is_bound", False): return
-        cls._cron_freqs = dict[Callable, TimeFrame]()
         owner = obj if isinstance(obj, type) else type(obj)
         cron: dict = getattr(obj, "cron", dict[Any, Any]())
+        
         for method, freq in cron.items():
             if isinstance(method, classmethod):
                 method = method.__get__(owner, owner)
@@ -50,9 +50,11 @@ class On:
     @classmethod#█▄▄▄▄▄
     def start_cron(cls):
         cls.stop_cron()
-        for method in cls._cron_freqs:
-            task = cls.schedule(method)
-            cls._cron_tasks.append(task)
+        verbose = "Starting cron tasks:"
+        for method, freq in cls._cron_freqs.items():
+            cls._cron_tasks.append(cls.schedule(method))
+            verbose += f"\n -> \"{method.__name__}\" ({freq.name})"
+        Log.info(verbose)
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄
@@ -122,7 +124,11 @@ class Strategy:
             symbol_set = {(venue, S) for S in symbol_array}
             df = bundle.get(tf, symbol_set, until, **kwargs)
             if not df.empty: dfs.append(df)
-        return concat(dfs)
+        if dfs: return concat(dfs)
+        else: return DataFrame()
+        
+    # FIXME: REMEMBER THAT EACH POSITION WITHIN "ticks" IS A LIST, NOT A TICK OBJECT.
+    # SO, YOU NEED TO FIRST ITERATE OVER THE LIST AND YIELD EACH TICK OBJECT DIRECTLY.
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def orders(self, UID: str = None):
@@ -168,22 +174,26 @@ class Strategy:
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+#▄▄▄▄▄▄▄▄▄
+@dataclass
 class Test(Strategy):
     freq: TimeFrame = TimeFrame.H1
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __post_init__(self): Strategy.__init__(self)
+
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def setup(self):
         self.last = Timestamp.utcnow()
-        self.add_cron(self.review, TimeFrame.S1)
+        self.add_cron(self.test, TimeFrame.S5)
 
     #▄▄▄▄▄▄▄▄
-    On.tick#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def on_tick(self, tick: Tick):
+    On.tick#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def on_tick(self, tick: Tick):
         self.last = tick.time
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def review(self):
-        pass
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def test(self):
+        Log.debug("Testing cron...")
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_kill(self):

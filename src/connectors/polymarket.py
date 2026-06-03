@@ -282,9 +282,13 @@ class ExecPolymarket(Polymarket, ExecConnector):
 
         tf = self.symbol_to_tf(order.symbol)
         order.expiration = now.ceil(tf.value)
+        EID = response_json.pop("order_id", None)
+        response_json["EID"] = EID
+
         response = Response(order, **response_json)
         args = {"action": "create", "result": "OK"}
-        if (EID := response.EID) is not None:
+        
+        if (EID is not None):
             self._ordermap[response.UID] = EID
         if (len(self._ordermap) > 10000):
             self._ordermap.popitem(last = False)
@@ -302,8 +306,9 @@ class ExecPolymarket(Polymarket, ExecConnector):
         now = Timestamp.utcnow()
         if (self._client is None): await self.init_client()
         if (UID not in self._ordermap):
-            Log.error(self.VERBOSE.format(action = "delete",
-              result = "error", UID = UID, EID = "Invalid!"))
+            verbose = self.VERBOSE.format(
+                action = "delete", result = "error")
+            Log.error(verbose + f"Invalid UID {UID}!")
             return False
         EID = self._ordermap[UID]
         if (self._client is None): await self.init_client(self._auth)
