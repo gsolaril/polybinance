@@ -61,9 +61,10 @@ class Order:
     def inline(self):
         verbose = "Order({venue} {symbol}, S{size} P{price} @ "
         verbose += "{time:%Y/%m/%d %H:%M:%S.%f}, E+{DE:.1f}s | {UID})"
-        expires_in = Timedelta.total_seconds(self.expiration - self.time)
-        return verbose.format(**self.__dict__, time = self.time, DE = expires_in)
-
+        if self.expiration is None: expires_in = numpy.inf
+        else: expires_in = Timedelta.total_seconds(self.expiration - self.time)
+        return verbose.format(**self.__dict__, UID = self.UID,
+                             time = self.time, DE = expires_in)
 #▄▄▄▄▄▄▄▄▄▄▄
 @dataclass#█▄▄▄▄▄▄▄▄▄
 class Response(Order):
@@ -95,7 +96,8 @@ class Response(Order):
         if (nlspace is None): sep = ", IDs: "
         else: sep = "\n" + " " * nlspace
         verbose = "Order({venue} {symbol}, S{size} P{price} @ "
-        expires_in = Timedelta.total_seconds(self.expiration - self.time)
+        if self.expiration is None: expires_in = numpy.inf
+        else: expires_in = Timedelta.total_seconds(self.expiration - self.time)
         delay = 1e6 * Timedelta.total_seconds(self.time_place - self.time)
         verbose += "{time:%Y/%m/%d %H:%M:%S.%f}, D+{DD:.0f}µs, E+{DE:.1f}s{sep}{UID} {EID} | {status})"
         return verbose.format(**self.__dict__, sep = sep, time = self.time, DD = delay, DE = expires_in)
