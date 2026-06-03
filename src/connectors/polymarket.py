@@ -2,7 +2,7 @@
 import asyncio, json
 from bidict import OrderedBidict
 from dataclasses import dataclass
-from collections import deque
+from collections import deque, OrderedDict
 from typing import Any, List, Dict, Callable
 from pandas import Timestamp, Timedelta
 from eth_account import Account
@@ -51,13 +51,19 @@ class Polymarket(Exchange):
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def get_offset(cls): cls.OFFSET = Timedelta(0)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def symbol_to_tf(cls, symbol: str):
+        tf_str = symbol.split(cls.ARROWS["U"])[-1]
+        tf_str = tf_str.split(cls.ARROWS["D"])[-1]
+        return TimeFrame[tf_str]
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def symbol_to_venue(cls, symbol: str):
         if not symbol[10:].isdigit():
             now = Timestamp.utcnow()
-            tf_str = symbol.split(cls.ARROWS["U"])[-1]
-            tf_str = tf_str.split(cls.ARROWS["D"])[-1]
-            time = now.floor(TimeFrame[tf_str].value)
+            tf = cls.symbol_to_tf(symbol)
+            time = now.floor(tf.value)
             symbol = f"{symbol}{time.timestamp():.0f}"
         return cls.SYMBOLS.get(symbol, None)
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -67,7 +73,16 @@ class Polymarket(Exchange):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def status_to_local(cls, response: dict):
-        return cls.STATUS.get(response["status"], None) 
+        status = response.get("status", None)
+        status = cls.STATUS.get(status, None)
+        if status is not None: return status
+        if "canceled" in response:
+            canceled = response["canceled"]
+            if len(canceled): return "OK"
+        if "not_canceled" in response:
+            not_canceled = response["not_canceled"]
+            if len(not_canceled): return "ERROR"
+
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def _parse_ids(cls, event: Dict[str, Any]):
@@ -236,31 +251,78 @@ class ExecPolymarket(Polymarket, ExecConnector):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, auth: Polymarket.Auth = None):
         if (auth is None): auth = Polymarket.AUTH
-        self.responses = deque(maxlen = 10000)
-        self.client, self.auth = None, auth
+        self._send_log = deque[dict](maxlen = 10000)
+        self._ordermap = OrderedDict[str, str]()
+        self._client, self._auth = None, auth
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def init_client(self, auth: Polymarket.Auth):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def init_client(self):
+        auth: Polymarket.Auth = self._auth
         Log.warning("Initializing Polymarket exec client...")
         client_secure = await AsyncSecureClient.create(private_key = auth.private_key,
           api_key = RelayerApiKey(key = auth.relayer_key, address = auth.relayer_address))
-        self.client = await client_secure.setup_gasless_wallet()
-        await (await self.client.setup_trading_approvals()).wait()
+        self._client = await client_secure.setup_gasless_wallet()
+        await (await self._client.setup_trading_approvals()).wait()
         await client_secure.close()
         
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def send(self, order: Order):
-        if (self.client is None): await self.init_client(self.auth)
-        response_json: dict = (await self.client.place_limit_order(
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def create_order(self, order: Order):
+
+        now = Timestamp.utcnow()
+        if (self._client is None): await self.init_client()
+        response_obj = await self._client.place_limit_order(
             side = order.side.upper(), price = str(order.price),
             token_id = self.symbol_to_venue(order.symbol),
-            size = str(abs(order.size) * 100))).model_dump()
+            size = str(int(abs(order.size) * 100)))
 
-        print("RESPONSE JSON:\n -> %s\n" % response_json)
-        response_json["status"] = self.status_to_local(response_json)
+        response_json = response_obj.model_dump()
+        self._send_log.append(response_json)
+        status = self.status_to_local(response_json)
+        response_json["status"] = status
+
+        tf = self.symbol_to_tf(order.symbol)
+        order.expiration = now.ceil(tf.value)
         response = Response(order, **response_json)
-        self.responses.append(response)
-        return response
+        args = {"action": "create", "result": "OK"}
+        if (EID := response.EID) is not None:
+            self._ordermap[response.UID] = EID
+        if (len(self._ordermap) > 10000):
+            self._ordermap.popitem(last = False)
+
+        ok = (status == "OK")
+        if not ok: args["result"] = "error"
+        log = Log.success if ok else Log.error
+        verbose = self.VERBOSE.format(**args)
+        log(verbose + f"\n => {response!r}")
+        return ok, response
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def delete_order(self, UID: str):
+        
+        now = Timestamp.utcnow()
+        if (self._client is None): await self.init_client()
+        if (UID not in self._ordermap):
+            Log.error(self.VERBOSE.format(action = "delete",
+              result = "error", UID = UID, EID = "Invalid!"))
+            return False
+        EID = self._ordermap[UID]
+        if (self._client is None): await self.init_client(self._auth)
+        response_obj = await self._client.cancel_order(order_id = EID)
+        
+        response_json = response_obj.model_dump()
+        self._send_log.append(response_json)
+        status = self.status_to_local(response_json)
+        response_json["status"] = status
+        
+        args = {"action": "delete", "result": "OK"}
+
+        ok = (status == "OK")
+        if not ok: args["result"] = "error" 
+        else: self._ordermap.pop(UID)
+        log = Log.success if ok else Log.error
+        verbose = self.VERBOSE.format(**args)
+        log(verbose + f"\n => {UID} {EID}")
+        return ok
         
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -272,4 +334,4 @@ if (__name__ == "__main__"):
 
     order = Order(price = 0.01, size = 0.01, side = "buy",
                   venue = "Polymarket",  symbol = "BTC+M5")
-    asyncio.run(ExecPolymarket.send(order))
+    asyncio.run(ExecPolymarket._send(order))

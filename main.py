@@ -19,11 +19,12 @@ def parse_args(pairs: list[str]):
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 async def test(): # ↑↓
     exec = ExecPolymarket()
-    order = Order(price = 0.01, size = 0.05,
+    await exec.init_client()
+    order = Order(price = 0.01, size = 1,
         venue = "Polymarket",  symbol = "BTC↑M5")
     Log.debug("Sending order: %s" % order.__dict__)
-    response = await exec.send(order)
-    Log.debug("Response: %s" % response.__dict__)
+    ok, response = await exec.create_order(order)
+    if ok: await exec.delete_order(response.UID)
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 async def main():
@@ -58,4 +59,4 @@ async def main():
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-if (__name__ == "__main__"): asyncio.run(main())
+if (__name__ == "__main__"): asyncio.run(test())
