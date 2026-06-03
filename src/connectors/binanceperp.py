@@ -2,10 +2,11 @@
 import asyncio, json, hmac, hashlib
 from dataclasses import dataclass
 from urllib.parse import urlencode
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Callable
 from pandas import Timestamp, Timedelta
-from aiohttp import ClientSession
-from src.connectors.base import Exchange, DataConnector, ExecConnector
+from aiohttp import ClientSession, ClientWebSocketResponse
+from src.connectors.base import DataConnector, ExecConnector
+from src.connectors.base import Exchange, DataStream
 from src.models import Order, Tick, Candle
 from src.utils import CONFIG, SYMBOLS, TimeFrame, Log
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -13,12 +14,10 @@ from src.utils import CONFIG, SYMBOLS, TimeFrame, Log
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class BinancePerp(Exchange):
-    VENUE = "BinancePerp"
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     @dataclass(frozen = True)
     class Auth:
         api_key: str; secret: str
-
     AUTH = Auth(**CONFIG["BINANCE"])
     URL_WS = "wss://fstream.binance.com"
     URL_API = "https://fapi.binance.com/fapi/v1"
@@ -61,19 +60,45 @@ class BinancePerp(Exchange):
 class DataBinancePerp(BinancePerp, DataConnector):
     
     IGNORE_TIMEFRAMES = {TimeFrame.MIN}
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def get_channels_ticks(self):
-        key = "usdt@bookTicker"
-        streams = [S.lower() + key for S in SYMBOLS]
-        payload = {"method": "SUBSCRIBE", "params": streams, "id": 1}
-        return self.URL_WS + "/public/stream", payload
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __init__(self, callbacks: List[Callable]):
+        super().__init__(callbacks = callbacks,
+            streams = {
+                "ticks": DataStream(
+                    self.__class__.__name__ + "/ticks",
+                    URL = self.URL_WS + "/public/stream",
+                    on_channel = self.on_channel_ticks,
+                    on_message = self.on_message_ticks,
+                    on_ping = self.on_ping),
+                "klines": DataStream(
+                    self.__class__.__name__ + "/klines",
+                    URL = self.URL_WS + "/market/stream",
+                    on_channel = self.on_channel_klines,
+                    on_message = self.on_message_klines,
+                    on_ping = self.on_ping),
+                }
+            )
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def get_channels_klines(self):
-        key = "usdt_perpetual@continuousKline_1s"
-        streams = [S.lower() + key for S in SYMBOLS]
-        payload = {"method": "SUBSCRIBE", "params": streams, "id": 1}
-        return self.URL_WS + "/market/stream", payload
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def on_ping(self, WS: ClientWebSocketResponse, sender: bool = False):
+        if not sender: return await WS.send_str("pong")
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def on_channel(self, streams: set[str], key: str):
+        next = {S.lower() + key for S in SYMBOLS}
+        new, old = next - streams, streams - next
+        payload = dict()
+        if new: payload.update({"method": "SUBSCRIBE", "id": 1, "params": sorted(new)})
+        if old: payload.update({"method": "UNSUBSCRIBE", "id": 1, "params": sorted(old)})
+        return old, new, payload
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def on_channel_ticks(self, streams: set[str], *args, **kwargs):
+        return self.on_channel(streams, "usdt@bookTicker")
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def on_channel_klines(self, streams: set[str], *args, **kwargs):
+        return self.on_channel(streams, "usdt_perpetual@continuousKline_1s")
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_message_ticks(self, data: Dict):
