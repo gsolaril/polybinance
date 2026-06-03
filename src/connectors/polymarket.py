@@ -251,11 +251,12 @@ class ExecPolymarket(Polymarket, ExecConnector):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def send(self, order: Order):
         if (self.client is None): await self.init_client(self.auth)
-        response_json: dict = (await self.client.place_limit_order(
-            side = order.side.upper(), price = str(order.price),
+        response = await self.client.place_limit_order(
             token_id = self.symbol_to_venue(order.symbol),
-            size = str(abs(order.size) * 100))).model_dump()
+            side = order.side.upper(), price = str(order.price),
+            size = str(int(abs(order.size) * 100)))
 
+        response_json = response.model_dump()
         print("RESPONSE JSON:\n -> %s\n" % response_json)
         response_json["status"] = self.status_to_local(response_json)
         response = Response(order, **response_json)
