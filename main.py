@@ -22,8 +22,8 @@ async def test(): # ↑↓
     order = Order(price = 0.01, size = 0.5,
         venue = "Polymarket",  symbol = "BTC↑M5")
     Log.debug("Sending order: %s" % order.__dict__)
-    response = await exec.send(order)
-    Log.debug("Response: %s" % response.__dict__)
+    ok, response = await exec.create_order(order)
+    if ok: await exec.delete_order(response.UID)
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 async def main():

@@ -2,7 +2,7 @@
 import asyncio, json
 from bidict import OrderedBidict
 from dataclasses import dataclass
-from collections import deque
+from collections import OrderedDict, deque
 from typing import Any, List, Dict, Callable
 from pandas import Timestamp, Timedelta
 from eth_account import Account
@@ -67,7 +67,16 @@ class Polymarket(Exchange):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def status_to_local(cls, response: dict):
-        return cls.STATUS.get(response["status"], None) 
+        status = response.get("status", None)
+        status = cls.STATUS.get(status, None)
+        if status is not None: return status
+        if "canceled" in response:
+            canceled = response["canceled"]
+            if len(canceled): return "OK"
+        if "not_canceled" in response:
+            not_canceled = response["not_canceled"]
+            if len(not_canceled): return "ERROR"
+
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def _parse_ids(cls, event: Dict[str, Any]):
@@ -236,32 +245,67 @@ class ExecPolymarket(Polymarket, ExecConnector):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, auth: Polymarket.Auth = None):
         if (auth is None): auth = Polymarket.AUTH
-        self.responses = deque(maxlen = 10000)
-        self.client, self.auth = None, auth
+        self._send_log = deque[dict](maxlen = 10000)
+        self._orders = OrderedDict[str, Response]()
+        self._client, self._auth = None, auth
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def init_client(self, auth: Polymarket.Auth):
         Log.warning("Initializing Polymarket exec client...")
         client_secure = await AsyncSecureClient.create(private_key = auth.private_key,
           api_key = RelayerApiKey(key = auth.relayer_key, address = auth.relayer_address))
-        self.client = await client_secure.setup_gasless_wallet()
-        await (await self.client.setup_trading_approvals()).wait()
+        self._client = await client_secure.setup_gasless_wallet()
+        await (await self._client.setup_trading_approvals()).wait()
         await client_secure.close()
         
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def send(self, order: Order):
-        if (self.client is None): await self.init_client(self.auth)
-        response = await self.client.place_limit_order(
-            token_id = self.symbol_to_venue(order.symbol),
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def create_order(self, order: Order):
+        if (self._client is None): await self.init_client(self._auth)
+        response_obj = await self._client.place_limit_order(
             side = order.side.upper(), price = str(order.price),
+            token_id = self.symbol_to_venue(order.symbol),
             size = str(int(abs(order.size) * 100)))
 
-        response_json = response.model_dump()
-        print("RESPONSE JSON:\n -> %s\n" % response_json)
-        response_json["status"] = self.status_to_local(response_json)
+        response_json = response_obj.model_dump()
+        self._send_log.append(response_json)
+        status = self.status_to_local(response_json)
+        response_json["status"] = status
         response = Response(order, **response_json)
-        self.responses.append(response)
-        return response
+        args = {"action": "create", "result": "OK",
+          "UID": response.UID, "EID": response.EID}
+
+        ok = (response_json["status"] == "OK")
+        if ok: self._orders[response.UID] = response
+        else: args["result"] = "error"
+        log = Log.success if ok else Log.error
+        verbose = self.VERBOSE.format(**args)
+        log(verbose + f"\n => {response.__dict__}")
+        return ok, response
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def delete_order(self, id: str):
+        order: Response = self._orders.get(id, None)
+        if (order is None):
+            Log.error(self.VERBOSE.format(action = "delete",
+                result = "error", UID = id, EID = "Invalid ID"))
+            return False
+        if (self._client is None): await self.init_client(self._auth)
+        response_obj = await self._client.cancel_order(order_id = order.EID)
+        
+        response_json = response_obj.model_dump()
+        self._send_log.append(response_json)
+        status = self.status_to_local(response_json)
+        response_json["status"] = status
+        
+        args = {"action": "delete", "result": "OK",
+                "UID": order.UID, "EID": order.EID}
+
+        ok = (response_json["status"] == "OK")
+        if ok: order.status = "DELETED"
+        else: args["result"] = "error"
+        log = Log.success if ok else Log.error
+        log(self.VERBOSE.format(**args))
+        return ok
         
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -273,4 +317,4 @@ if (__name__ == "__main__"):
 
     order = Order(price = 0.01, size = 0.01, side = "buy",
                   venue = "Polymarket",  symbol = "BTC+M5")
-    asyncio.run(ExecPolymarket.send(order))
+    asyncio.run(ExecPolymarket._send(order))
