@@ -15,7 +15,7 @@ class ExchangeMeta(type):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __new__(mcls: type, name: str, bases: tuple[type], namespace: dict[str, Any]):
         cls = super().__new__(mcls, name, bases, namespace)
-        cls.VENUE = name
+        if any(B is Exchange for B in bases): cls.VENUE = name
         return cls
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
