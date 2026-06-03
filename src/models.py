@@ -15,8 +15,6 @@ from .utils import TimeFrame, Log
 class Symbol: # TODO: Not yet being used.
     venue: str; symbol: str; endp_id: str
     point_size: float; point_value: float
-    
-    
     _SEP = " "
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __repr__(self):
