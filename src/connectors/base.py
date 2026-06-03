@@ -131,15 +131,14 @@ class DataStream:
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def read(self, message: WSMessage):
 
-        #Log.debug(str(message.data)[:400] + "...")
         if (message.type == WSMsgType.TEXT):
             try: asyncio.create_task(self.on_message(message.json()))
             except json.JSONDecodeError:
                 text = str(message.data)
-                Log.debug(str(message.data)[:400] + "...")
                 if (text.lower() == "pong"): pass
                 elif (text.lower() == "ping"): await self.send_ping(False)
                 else: Log.warning(f"\"{self.name}\" got non-JSON: \"{text}\"")
+        elif (message.type == WSMsgType.PING): await self._WS.pong(message.data)
         elif (message.type == WSMsgType.ERROR): raise self._WS.exception()
         elif (message.type in {WSMsgType.CLOSED, WSMsgType.CLOSING}):
             Log.warning(f"\"{self.name}\" WS closed, reconnecting...")
