@@ -152,6 +152,10 @@ class DataBinancePerp(BinancePerp, DataConnector):
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 class ExecBinancePerp(BinancePerp, ExecConnector):
 
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def start(self):
+        return # TODO: For now
+
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def send(self, order: Order):
@@ -179,4 +183,4 @@ class ExecBinancePerp(BinancePerp, ExecConnector):
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 if (__name__ == "__main__"):
     async def log(_, tick: Tick): return Log.debug(tick.__dict__)
-    asyncio.run(DataBinancePerp(callbacks = [log]).run())
+    asyncio.run(DataBinancePerp(callbacks = [log]).start())

@@ -21,7 +21,7 @@ def parse_args(pairs: list[str]):
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 async def test(): # ↑↓
     exec = ExecPolymarket()
-    await exec.init_client()
+    await exec.start()
     order = Order(price = 0.01, size = 1,
         venue = "Polymarket",  symbol = "BTC↑M5")
     Log.debug("Sending order: %s" % order.__dict__)
@@ -39,7 +39,8 @@ async def main():
 
     args = parser.parse_args()
     Main = globals().get(getattr(args, "strategy"), Test)
-    params = parse_args(getattr(args, "params"))
+    params = Main.defaults()
+    params.update(parse_args(getattr(args, "params")))
 
     report = f"Launching strategy: \"{Main.__name__}\"\n => Parameters:"
     for K, V in params.items(): report += f"\n    • \"{K}\": {V!r}"
@@ -53,8 +54,10 @@ async def main():
 
     On.bind(Polymarket)
     On.start_cron()
-    try: await db.run()
-    except BaseException as EXC:
+    try:
+        await eb.start()
+        await db.start()
+    except Exception as EXC:
         Log.exception(EXC); raise
     finally:
         On.stop_cron()

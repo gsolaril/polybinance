@@ -43,7 +43,8 @@ class Polymarket(Exchange):
     }
     SYMBOLS = OrderedBidict()
     MAX_SYMBOLS = 10000
-    ARROWS = {"U": "↑", "D": "↓"}
+    ARROWS_FROM_CHAR = {"U": "↑", "D": "↓"}
+    ARROWS_FROM_SIGN = {+1: "↑", -1: "↓", 0: "-"}
     OFFSET = Timedelta(0)
     STATUS = {"live": "OK"}
 
@@ -53,8 +54,8 @@ class Polymarket(Exchange):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def symbol_to_tf(cls, symbol: str):
-        tf_str = symbol.split(cls.ARROWS["U"])[-1]
-        tf_str = tf_str.split(cls.ARROWS["D"])[-1]
+        tf_str = symbol.split(cls.ARROWS_FROM_CHAR["U"])[-1]
+        tf_str = tf_str.split(cls.ARROWS_FROM_CHAR["D"])[-1]
         return TimeFrame[tf_str]
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -101,12 +102,12 @@ class Polymarket(Exchange):
             except Exception: clob_ids = None
         if not isinstance(clob_ids, list): return
 
-        ids = dict.fromkeys(cls.ARROWS.values())
+        ids = dict.fromkeys(cls.ARROWS_FROM_CHAR.values())
         if len(outcomes) != len(clob_ids): return
         for nm, token in zip(outcomes, clob_ids):
-            ids[cls.ARROWS[str(nm).strip()[0]]] = token
-        if (ids[cls.ARROWS["U"]] is None): return
-        if (ids[cls.ARROWS["D"]] is None): return
+            ids[cls.ARROWS_FROM_CHAR[str(nm).strip()[0]]] = token
+        if (ids[cls.ARROWS_FROM_CHAR["U"]] is None): return
+        if (ids[cls.ARROWS_FROM_CHAR["D"]] is None): return
         return ids
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -156,7 +157,7 @@ class Polymarket(Exchange):
             ids = cls._parse_ids(event)
             if ids is None: continue
             ti = Timestamp.timestamp(ts)
-            for arrow in cls.ARROWS.values():
+            for arrow in cls.ARROWS_FROM_CHAR.values():
                 key = f"{symbol}{arrow}{tf!r}{ti:.0f}"
                 cls.SYMBOLS[key] = ids[arrow]
                 verbose.append(f" • {key} => {ids[arrow]}")
@@ -255,8 +256,8 @@ class ExecPolymarket(Polymarket, ExecConnector):
         self._ordermap = OrderedDict[str, str]()
         self._client, self._auth = None, auth
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def init_client(self):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def start(self):
         auth: Polymarket.Auth = self._auth
         Log.warning("Initializing Polymarket exec client...")
         client_secure = await AsyncSecureClient.create(private_key = auth.private_key,
@@ -269,7 +270,7 @@ class ExecPolymarket(Polymarket, ExecConnector):
     async def create_order(self, order: Order):
 
         now = Timestamp.utcnow()
-        if (self._client is None): await self.init_client()
+        if (self._client is None): await self.start()
         response_obj = await self._client.place_limit_order(
             side = order.side.upper(), price = str(order.price),
             token_id = self.symbol_to_venue(order.symbol),
@@ -287,7 +288,7 @@ class ExecPolymarket(Polymarket, ExecConnector):
 
         response = Response(order, **response_json)
         args = {"action": "create", "result": "OK"}
-        
+
         if (EID is not None):
             self._ordermap[response.UID] = EID
         if (len(self._ordermap) > 10000):
@@ -304,14 +305,14 @@ class ExecPolymarket(Polymarket, ExecConnector):
     async def delete_order(self, UID: str):
         
         now = Timestamp.utcnow()
-        if (self._client is None): await self.init_client()
+        if (self._client is None): await self.start()
         if (UID not in self._ordermap):
             verbose = self.VERBOSE.format(
                 action = "delete", result = "error")
             Log.error(verbose + f"Invalid UID {UID}!")
             return False
         EID = self._ordermap[UID]
-        if (self._client is None): await self.init_client(self._auth)
+        if (self._client is None): await self.start(self._auth)
         response_obj = await self._client.cancel_order(order_id = EID)
         
         response_json = response_obj.model_dump()

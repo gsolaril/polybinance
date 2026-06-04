@@ -165,8 +165,8 @@ class DataConnector:
             ncpf = self.MAX_QUEUE_LENGTH,
             ignore = self.IGNORE_TIMEFRAMES)
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def run(self):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def start(self):
         try:
             tasks = {"on_freq": asyncio.create_task(self.on_freq())}
             for name, stream in self._streams.items():
@@ -200,6 +200,7 @@ class DataConnector:
 class ExecConnector:
     URL_API = ...
     VERBOSE = "Order {action} {result}: "
+    async def start(self): ...
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def create_order(self, order: Order): ...
     async def delete_order(self, id: str): ...
@@ -215,11 +216,11 @@ class DataBus:
         for connector in connectors:
             name = getattr(connector, "VENUE", None)
             self._conns[name] = connector(callbacks)
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def run(self):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def start(self):
         for connector in self._conns.values():
             name = getattr(connector, "VENUE", None)
-            task = asyncio.create_task(connector.run())
+            task = asyncio.create_task(connector.start())
             self._threads[name] = task
         await asyncio.gather(*self._threads.values())
 
@@ -231,7 +232,14 @@ class ExecBus:
         self._threads = dict[str, asyncio.Task]()
         for connector in connectors:
             name = getattr(connector, "VENUE", None)
-            self._conns[name] = connector
+            self._conns[name] = connector()
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def start(self):
+        for connector in self._conns.values():
+            name = getattr(connector, "VENUE", None)
+            task = asyncio.create_task(connector.start())
+            self._threads[name] = task
+        await asyncio.gather(*self._threads.values())
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████

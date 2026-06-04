@@ -1,12 +1,12 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 import asyncio
-from dataclasses import dataclass
 from asyncio import CancelledError
 from collections import OrderedDict
+from dataclasses import dataclass, fields, MISSING
 from typing import Any, Callable, ClassVar, Dict, List, Set
 from src.connectors.base import DataBus, ExecBus
 from pandas import DataFrame, Timestamp, concat
-from src.models import Order, Tick, Response
+from src.models import Order, Tick, Symbol
 from src.utils import Log, TimeFrame
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -126,9 +126,14 @@ class Strategy:
             if not df.empty: dfs.append(df)
         if dfs: return concat(dfs)
         else: return DataFrame()
-        
+
     # FIXME: REMEMBER THAT EACH POSITION WITHIN "ticks" IS A LIST, NOT A TICK OBJECT.
     # SO, YOU NEED TO FIRST ITERATE OVER THE LIST AND YIELD EACH TICK OBJECT DIRECTLY.
+    
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄
+    def defaults(cls):
+        return {f.name: f.default for f in fields(cls) if f.default is not MISSING}
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def orders(self, UID: str = None):
