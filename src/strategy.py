@@ -160,6 +160,19 @@ class Strategy:
             Log.exception(EXC)
             return False, None
 
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def modify_order(self, UID: str, order: Order):
+        try:
+            conn = self._get_conn(order.venue)
+            ok, response_obj = await conn.modify_order(UID, order)
+            if response_obj is None: return ok, None
+            response = response_obj.__dict__
+            if ok: self._orders[UID] = response
+            return ok, response
+        except Exception as EXC:
+            Log.exception(EXC)
+            return False, None
+
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def delete_order(self, UID: str):
         try: 

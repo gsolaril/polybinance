@@ -39,7 +39,8 @@ class DataStream:
     VERBOSE_WSER = "\"{name}\" {stream} failed (will retry after reconnect)"
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self, name: str, URL: str, on_channel: Callable,
-        on_message: Callable, on_ping: Optional[Callable] = None):
+        on_message: Callable, on_ping: Optional[Callable] = None,
+        headers: Optional[Callable | Dict[str, str]] = None):
 
         self.URL = URL
         self.name = name
@@ -47,6 +48,7 @@ class DataStream:
         self.on_channel = on_channel
         self.on_message = on_message
         self.on_ping: Callable = on_ping
+        self._headers = headers
         self._WS: ClientWebSocketResponse = None
         self._ping_task: asyncio.Task = None
         self.streams = set[str]()
@@ -120,7 +122,15 @@ class DataStream:
         async with ClientSession() as session:
             while self.active:
                 Log.info(f"\"{self.name}\" connecting to \"{self.URL}\"...")
-                async with session.ws_connect(self.URL, heartbeat = 30) as WS:
+                headers = None
+                if isinstance(self._headers, Callable):
+                    headers = self._headers()
+                    if asyncio.iscoroutine(headers):
+                        headers = await headers
+                elif isinstance(self._headers, dict):
+                    headers = self._headers
+                async with session.ws_connect(self.URL, heartbeat = 30,
+                    headers = headers) as WS:
                     try:
                         self._WS = WS
                         while not self.streams: await asyncio.sleep(0.5)
@@ -203,6 +213,7 @@ class ExecConnector:
     async def start(self): ...
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def create_order(self, order: Order): ...
+    async def modify_order(self, UID: str, order: Order): ...
     async def delete_order(self, id: str): ...
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
