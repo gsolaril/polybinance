@@ -301,6 +301,12 @@ class ExecPolymarket(Polymarket, ExecConnector):
         log(verbose + f"\n => {response!r}")
         return ok, response
 
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def modify_order(self, UID: str, order: Order):
+        verbose = self.VERBOSE.format(action = "modify", result = "error")
+        Log.error(verbose + "Not supported on Polymarket.")
+        return False, None
+
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def delete_order(self, UID: str):
         
@@ -340,4 +346,4 @@ if (__name__ == "__main__"):
 
     order = Order(price = 0.01, size = 0.01, side = "buy",
                   venue = "Polymarket",  symbol = "BTC+M5")
-    asyncio.run(ExecPolymarket._send(order))
+    asyncio.run(ExecPolymarket().create_order(order))

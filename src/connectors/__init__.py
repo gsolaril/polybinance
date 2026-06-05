@@ -1,9 +1,15 @@
 import sys, importlib
 from .base import DataBus, ExecBus
-from .binanceperp import BinancePerp, ExecBinancePerp, DataBinancePerp
+from .binance import BinanceUsdm, ExecBinanceUsdm, DataBinanceUsdm
+# from .binance import BinanceSpot, ExecBinanceSpot, DataBinanceSpot
+# from .binance import BinanceCoin, ExecBinanceCoin, DataBinanceCoin
+# from .bybit import BybitLinear, ExecBybitLinear, DataBybitLinear
+# from .bybit import BybitSpot, ExecBybitSpot, DataBybitSpot
+# from .bybit import BybitInverse, ExecBybitInverse, DataBybitInverse
 from .polymarket import Polymarket, ExecPolymarket, DataPolymarket
+# from .rofex import Rofex, ExecRofex, DataRofex
 
-exchanges = [BinancePerp, Polymarket]
+exchanges = [BinanceUsdm, Polymarket] #, BinanceSpot, BinanceCoin, BybitLinear, BybitSpot, BybitInverse, Rofex]
 
 ExecConnectors, DataConnectors = list(), list()
 __all__ = ["DataBus", "ExecBus", "DataConnectors", "ExecConnectors"]
