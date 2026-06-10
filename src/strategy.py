@@ -108,7 +108,8 @@ class Strategy(metaclass = Meta):
     def __init__(self):
         self._start = Timestamp.utcnow()
         self.cron = dict[Callable, TimeFrame]()
-        self._orders = OrderedDict[str, dict]()
+        self._orders_history = OrderedDict[str, dict]()
+        self._orders_current = OrderedDict[str, dict]()
         self._data: DataBus = None
         self._exec: ExecBus = None
         self.setup()
@@ -150,8 +151,8 @@ class Strategy(metaclass = Meta):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def orders(self, UID: str = None):
         # TODO: Shall be updated from private WebSockets in the future
-        if UID is not None: return self._orders.get(UID, None)
-        return DataFrame.from_dict(self._orders, orient = "index")
+        if UID is not None: return self._orders_current.get(UID, None)
+        return DataFrame.from_dict(self._orders_current, orient = "index")
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def _get_conn(self, venue: str):
@@ -166,7 +167,10 @@ class Strategy(metaclass = Meta):
             conn = self._get_conn(order.venue)
             ok, response_obj = await conn.create_order(order)
             response = response_obj.__dict__
-            if ok: self._orders[response["UID"]] = response
+            if ok:
+                UID = response["UID"]
+                self._orders_current[UID] = response
+                self._orders_history[UID] = response
         except ExecConnector.Reject as EXC:
             ok, response = False, Log.error(EXC)
         except Exception as EXC:
@@ -181,7 +185,9 @@ class Strategy(metaclass = Meta):
             ok, response_obj = await conn.modify_order(UID, order)
             if response_obj is None: return ok, None
             response = response_obj.__dict__
-            if ok: self._orders[UID] = response
+            if ok and UID in self._orders_current:
+                self._orders_current[UID] = response
+                self._orders_history[UID] = response
         except Exception as EXC:
             Log.exception(EXC)
             ok = False
@@ -191,19 +197,33 @@ class Strategy(metaclass = Meta):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def delete_order(self, UID: str):
         try: 
-            if UID in self._orders: order: dict = self._orders[UID]
+            if UID in self._orders_current:
+                order: dict = self._orders_current[UID]
             else: Log.error(f"Order {UID} not found"); return False
             conn = self._get_conn(order["venue"])
             ok = await conn.delete_order(UID)
-            if ok: self._orders.pop(UID, None)
+            if ok and UID in self._orders_current:
+                self._orders_current.pop(UID, None)
+                self._orders_history[UID].status = "deleted"
         except Exception as EXC:
             Log.exception(EXC)
             ok = False
 
         return ok, UID
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def on_kill(self): ...
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def _on_kill(self):
+        await self.on_kill()
+        strategy = self.__class__.__name__
+        order_gen = (resp.__dict__ for resp in self._orders_history.values())
+        history = DataFrame.from_dict(order_gen, orient = "index").set_index("UID")
+        history.to_csv(f"logs/{self._start:%Y%m%d_%H%M%S}_{strategy}_history.csv")
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def on_kill(self):
+        strategy = self.__class__.__name__
+        error = f"\"{strategy}.on_kill\" not implemented."
+        raise NotImplementedError(error)
     
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
