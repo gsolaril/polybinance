@@ -1,4 +1,10 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+if __name__ == "__main__":
+    import sys, os
+    _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _here = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, _root)
+    if _here in sys.path: sys.path.remove(_here)
 import asyncio, json
 from bidict import bidict
 from dataclasses import dataclass
@@ -310,7 +316,11 @@ class ExecRofex(Rofex, ExecConnector):
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+async def test_data():
+    async def log(tick: Tick): return Log.debug(tick.__dict__)
+    await DataRofex(callbacks = [log]).start()
+
+async def test_exec(): ...
 
 if (__name__ == "__main__"):
-    async def log(_, tick: Tick): return Log.debug(tick.__dict__)
-    asyncio.run(DataRofex(callbacks = [log]).start())
+    asyncio.run(test_data())

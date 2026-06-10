@@ -1,4 +1,10 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+if __name__ == "__main__":
+    import sys, os
+    _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _here = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, _root)
+    if _here in sys.path: sys.path.remove(_here)
 import asyncio, json
 from bidict import OrderedBidict
 from dataclasses import dataclass
@@ -340,10 +346,11 @@ class ExecPolymarket(Polymarket, ExecConnector):
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-if (__name__ == "__main__"):
-    #async def log(_, tick: Tick): return Log.debug(tick.__dict__)
-    #asyncio.run(DataPolymarket(callbacks = [log]).connect())
+async def test_data():
+    async def log(tick: Tick): return Log.debug(tick.__dict__)
+    await DataPolymarket(callbacks = [log]).start()
 
-    order = Order(price = 0.01, size = 0.01, side = "buy",
-                  venue = "Polymarket",  symbol = "BTC+M5")
-    asyncio.run(ExecPolymarket().create_order(order))
+async def test_exec(): ...
+
+if (__name__ == "__main__"):
+    asyncio.run(test_data())

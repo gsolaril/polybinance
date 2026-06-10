@@ -1,4 +1,10 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+if __name__ == "__main__":
+    import sys, os
+    _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _here = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, _root)
+    if _here in sys.path: sys.path.remove(_here)
 import asyncio, json, hmac, hashlib
 from dataclasses import dataclass
 from urllib.parse import urlencode
@@ -30,14 +36,14 @@ class Bybit(Exchange):
     TYPE = {"LIMIT": "Limit", "MARKET": "Market"}
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def signature(cls, payload: str):
         hmac_key = cls.AUTH.secret.encode("utf-8")
         hmac_msg = payload.encode("utf-8")
         return hmac.new(hmac_key, hmac_msg, hashlib.sha256).hexdigest()
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
-    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def auth_headers(cls, method: str, query: str = "", body: str = ""):
         timestamp = str(int(Timestamp.utcnow().timestamp() * 1e3))
         sign_str = timestamp + cls.AUTH.api_key + cls.RECV_WINDOW
@@ -134,7 +140,7 @@ class DataBybit(Bybit, DataConnector):
     async def on_ping(self, WS: ClientWebSocketResponse, sender: bool = False):
         if sender: return await WS.send_json({"op": "ping", "req_id": "1"})
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def on_channel(self, streams: set[str], topics: Callable[[str], str]):
         next = {topics(self.symbol_to_venue(S)) for S in SYMBOLS}
         new, old = next - streams, streams - next
@@ -389,6 +395,11 @@ class ExecBybitLinear(ExecBybit, BybitLinear): pass
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-if (__name__ == "__main__"):
+async def test_data():
     async def log(tick: Tick): return Log.debug(tick.__dict__)
-    asyncio.run(DataBybitLinear(callbacks = [log]).start())
+    await DataBybitLinear(callbacks = [log]).start()
+
+async def test_exec(): ...
+
+if (__name__ == "__main__"):
+    asyncio.run(test_data())

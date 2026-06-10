@@ -1,4 +1,10 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+if __name__ == "__main__":
+    import sys, os
+    _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _here = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, _root)
+    if _here in sys.path: sys.path.remove(_here)
 import asyncio, json, hmac, hashlib
 from dataclasses import dataclass
 from urllib.parse import urlencode
@@ -147,12 +153,15 @@ class DataBinance(Binance, DataConnector):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_message_ticks(self, data: Dict):
         if (data := data.get("data", None)) is None: return
-        if (event := data.get("e", None)) is None: return
-        if (event != "bookTicker"): return
-        tse, symbol = data.get("E", None), data.get("s", None)
-        if (tse is None) or (symbol is None): return
+        event = data.get("e", None)
+        if (event is not None) and (event != "bookTicker"): return
+        symbol = data.get("s", None)
+        if symbol is None: return
 
-        ts = Timestamp.utcnow() # Timestamp.utcfromtimestamp(int(tse) / 1e3) + self.OFFSET
+        tse = data.get("E", None)
+        ts = Timestamp.utcnow()
+        if (tse is not None):
+            ts = Timestamp.utcfromtimestamp(int(tse) / 1e3) + self.OFFSET
         tick = Tick(time = ts,
             venue = self.VENUE, symbol = self.symbol_to_local(symbol),
             pa = float(data["a"]), qa = float(data["A"]),
@@ -384,6 +393,11 @@ class ExecBinanceUsdm(ExecBinance, BinanceUsdm): pass
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-if (__name__ == "__main__"):
+async def test_data():
     async def log(tick: Tick): return Log.debug(tick.__dict__)
-    asyncio.run(DataBinanceUsdm(callbacks = [log]).start())
+    await DataBinanceUsdm(callbacks = [log]).start()
+
+async def test_exec(): ...
+
+if (__name__ == "__main__"):
+    asyncio.run(test_data())
