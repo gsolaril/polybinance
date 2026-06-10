@@ -58,7 +58,7 @@ class Order:
     def __repr__(self): return self.inline()
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def inline(self):
-        verbose = "Order({venue} {symbol}, S{size} P{price} @ "
+        verbose = "Order({venue} {symbol}, S{size:+.2f} P{price} @ "
         verbose += "{time:%Y/%m/%d %H:%M:%S.%f}, E+{DE:.1f}s | {UID})"
         if self.expiration is None: expires_in = numpy.inf
         else: expires_in = Timedelta.total_seconds(self.expiration - self.time)
@@ -94,7 +94,7 @@ class Response(Order):
     def inline(self, nlspace: int = None):
         if (nlspace is None): sep = ", IDs: "
         else: sep = "\n" + " " * nlspace
-        verbose = "Order({venue} {symbol}, S{size} P{price} @ "
+        verbose = "Order({venue} {symbol}, S{size:+.2f} P{price} @ "
         if self.expiration is None: expires_in = numpy.inf
         else: expires_in = Timedelta.total_seconds(self.expiration - self.time)
         delay = 1e6 * Timedelta.total_seconds(self.time_place - self.time)
