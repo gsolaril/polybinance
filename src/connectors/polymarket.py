@@ -277,10 +277,14 @@ class ExecPolymarket(Polymarket, ExecConnector):
 
         now = Timestamp.utcnow()
         if (self._client is None): await self.start()
-        response_obj = await self._client.place_limit_order(
-            side = order.side.upper(), price = str(order.price),
-            token_id = self.symbol_to_venue(order.symbol),
-            size = str(int(abs(order.size) * 100)))
+        side, price = order.side.upper(), str(order.price)
+        id = self.symbol_to_venue(order.symbol)
+        size = str(int(abs(order.size) * 100))
+
+        try: response_obj = await self._client.place_limit_order(
+            side = side, price = price, token_id = id, size = size)
+        except Exception as EXC: raise ExecConnector.Reject(
+            f"Error creating order:\n => {order!r}\n => {EXC}")
 
         response_json = response_obj.model_dump()
         self._send_log.append(response_json)
