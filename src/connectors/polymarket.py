@@ -50,7 +50,7 @@ class Polymarket(Exchange):
     SYMBOLS = OrderedBidict()
     MAX_SYMBOLS = 10000
     ARROWS_FROM_CHAR = {"U": "↑", "D": "↓"}
-    ARROWS_FROM_SIGN = {+1: "↑", -1: "↓", 0: "-"}
+    ARROWS_FROM_SIGN = {+1: "↑", -1: "↓"}
     OFFSET = Timedelta(0)
     STATUS = {"live": "OK"}
 

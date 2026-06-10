@@ -1,0 +1,15 @@
+[Unit]
+Description=Polybinance Pedro trading strategy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gaston
+Group=gaston
+WorkingDirectory=/home/gaston/polybinance
+ExecStart=/home/gaston/.python/bin/python main.py Pedro
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
