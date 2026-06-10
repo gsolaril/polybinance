@@ -1,4 +1,10 @@
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+if __name__ == "__main__":
+    import sys, os
+    _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    _here = os.path.dirname(os.path.abspath(__file__))
+    sys.path.insert(0, _root)
+    if _here in sys.path: sys.path.remove(_here)
 import asyncio, json
 from bidict import OrderedBidict
 from dataclasses import dataclass
@@ -44,7 +50,7 @@ class Polymarket(Exchange):
     SYMBOLS = OrderedBidict()
     MAX_SYMBOLS = 10000
     ARROWS_FROM_CHAR = {"U": "↑", "D": "↓"}
-    ARROWS_FROM_SIGN = {+1: "↑", -1: "↓", 0: "-"}
+    ARROWS_FROM_SIGN = {+1: "↑", -1: "↓"}
     OFFSET = Timedelta(0)
     STATUS = {"live": "OK"}
 
@@ -271,10 +277,14 @@ class ExecPolymarket(Polymarket, ExecConnector):
 
         now = Timestamp.utcnow()
         if (self._client is None): await self.start()
-        response_obj = await self._client.place_limit_order(
-            side = order.side.upper(), price = str(order.price),
-            token_id = self.symbol_to_venue(order.symbol),
-            size = str(int(abs(order.size) * 100)))
+        side, price = order.side.upper(), str(order.price)
+        id = self.symbol_to_venue(order.symbol)
+        size = str(int(abs(order.size) * 100))
+
+        try: response_obj = await self._client.place_limit_order(
+            side = side, price = price, token_id = id, size = size)
+        except Exception as EXC: raise ExecConnector.Reject(
+            f"Error creating order:\n => {order!r}\n => {EXC}")
 
         response_json = response_obj.model_dump()
         self._send_log.append(response_json)
@@ -300,6 +310,12 @@ class ExecPolymarket(Polymarket, ExecConnector):
         verbose = self.VERBOSE.format(**args)
         log(verbose + f"\n => {response!r}")
         return ok, response
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    async def modify_order(self, UID: str, order: Order):
+        verbose = self.VERBOSE.format(action = "modify", result = "error")
+        Log.error(verbose + "Not supported on Polymarket.")
+        return False, None
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def delete_order(self, UID: str):
@@ -334,10 +350,11 @@ class ExecPolymarket(Polymarket, ExecConnector):
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-if (__name__ == "__main__"):
-    #async def log(_, tick: Tick): return Log.debug(tick.__dict__)
-    #asyncio.run(DataPolymarket(callbacks = [log]).connect())
+async def test_data():
+    async def log(tick: Tick): return Log.debug(tick.__dict__)
+    await DataPolymarket(callbacks = [log]).start()
 
-    order = Order(price = 0.01, size = 0.01, side = "buy",
-                  venue = "Polymarket",  symbol = "BTC+M5")
-    asyncio.run(ExecPolymarket._send(order))
+async def test_exec(): ...
+
+if (__name__ == "__main__"):
+    asyncio.run(test_data())

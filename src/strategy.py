@@ -4,7 +4,7 @@ from asyncio import CancelledError
 from collections import OrderedDict
 from dataclasses import dataclass, fields, MISSING
 from typing import Any, Callable, ClassVar, Dict, List, Set
-from src.connectors.base import DataBus, ExecBus
+from src.connectors.base import ExecConnector, DataBus, ExecBus
 from pandas import DataFrame, Timestamp, concat
 from src.models import Order, Tick, Symbol
 from src.utils import Log, TimeFrame
@@ -89,9 +89,21 @@ class On:
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-#▄▄▄▄▄▄▄▄▄
-@dataclass
-class Strategy:
+#▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+class Meta(type):
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+    def __init__(cls, name: str, bases: tuple[type], attrs: dict[str, Any]):
+
+        super().__init__(name, bases, attrs)
+        if ("__post_init__" in attrs): return
+        if (name == "Strategy"): return
+        # inject __post_init__ in subclass if not defined
+        def __post_init__(self): Strategy.__init__(self)
+        cls.__post_init__ = __post_init__
+
+#▄▄▄▄▄▄▄▄▄▄▄
+@dataclass#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+class Strategy(metaclass = Meta):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     def __init__(self):
         self._start = Timestamp.utcnow()
@@ -155,12 +167,14 @@ class Strategy:
             ok, response_obj = await conn.create_order(order)
             response = response_obj.__dict__
             if ok: self._orders[response["UID"]] = response
-            return ok, response
+        except ExecConnector.Reject as EXC:
+            ok, response = False, Log.error(EXC)
         except Exception as EXC:
-            Log.exception(EXC)
-            return False, None
+            ok, response = False, Log.exception(EXC)
 
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+        return ok, response
+
+    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def modify_order(self, UID: str, order: Order):
         try:
             conn = self._get_conn(order.venue)
@@ -168,10 +182,11 @@ class Strategy:
             if response_obj is None: return ok, None
             response = response_obj.__dict__
             if ok: self._orders[UID] = response
-            return ok, response
         except Exception as EXC:
             Log.exception(EXC)
-            return False, None
+            ok = False
+
+        return ok, UID
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def delete_order(self, UID: str):
@@ -181,10 +196,11 @@ class Strategy:
             conn = self._get_conn(order["venue"])
             ok = await conn.delete_order(UID)
             if ok: self._orders.pop(UID, None)
-            return ok
         except Exception as EXC:
             Log.exception(EXC)
-            return False
+            ok = False
+
+        return ok, UID
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def on_kill(self): ...
@@ -192,39 +208,14 @@ class Strategy:
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-#▄▄▄▄▄▄▄▄▄
-@dataclass
-class Test(Strategy):
-    freq: TimeFrame = TimeFrame.H1
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def __post_init__(self): Strategy.__init__(self)
-
+#▄▄▄▄▄▄▄▄▄▄▄
+@dataclass#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+class StateStrategy(Strategy):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    def setup(self):
-        self.last = Timestamp.utcnow()
-        self.add_cron(self.test, TimeFrame.S5)
-
-    #▄▄▄▄▄▄▄▄
-    On.tick#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def on_tick(self, tick: Tick):
-        self.last = tick.time
-
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def test(self):
-        Log.debug("Testing cron...")
-
-    #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
-    async def on_kill(self):
-        DT_FORMAT = "%Y%m%d_%H%M%S"
-        time_kill = Timestamp.utcnow()
-        str_last = time_kill.strftime(DT_FORMAT)
-        str_start = self._start.strftime(DT_FORMAT)
-        str_timeline = f"{str_start}-{str_last}"
-        self.get_data().to_csv(f"logs/{str_timeline}_candles.csv")
-        self.get_data(Tick).to_csv(f"logs/{str_timeline}_ticks.csv")
+    def setup(self): pass
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
 #▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 if (__name__ == "__main__"):
-    strategy = Test()
+    strategy = Strategy()
