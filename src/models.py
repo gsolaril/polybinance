@@ -75,10 +75,12 @@ class Response(Order):
     def __init__(self, order: Order, **kwargs):
         super().__init__(**order.__dict__)
         self.time_order = order.time
+        self.size = float(kwargs.get("size", order.size))
+        self.price = float(kwargs.get("price", order.price))
         if self.time_place is None:
             self.time_place = Timestamp.utcnow()
         
-        self._check_expired(self.time)
+        self._check_expired(self.time_order)
         self._check_expired(self.time_place)
         self.status = kwargs["status"]
         self.EID = kwargs["EID"]
@@ -96,10 +98,11 @@ class Response(Order):
         else: sep = "\n" + " " * nlspace
         verbose = "Order({venue} {symbol}, S{size:+} P{price} @ "
         if self.expiration is None: expires_in = numpy.inf
-        else: expires_in = Timedelta.total_seconds(self.expiration - self.time)
-        delay = 1e6 * Timedelta.total_seconds(self.time_place - self.time)
+        else: expires_in = Timedelta.total_seconds(self.expiration - self.time_order)
+        delay = 1e6 * Timedelta.total_seconds(self.time_place - self.time_order)
         verbose += "{time:%Y/%m/%d %H:%M:%S.%f}, D+{DD:.0f}µs, E+{DE:.1f}s{sep}{UID} {EID} | {status})"
-        return verbose.format(**self.__dict__, sep = sep, time = self.time, DD = delay, DE = expires_in)
+        return verbose.format(**self.__dict__, sep = sep,
+          time = self.time_order, DD = delay, DE = expires_in)
 
 #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
 #███████████████████████████████████████████████████████████████████████████████████████████████████████████
