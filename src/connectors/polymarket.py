@@ -52,7 +52,7 @@ class Polymarket(Exchange):
     ARROWS_FROM_CHAR = {"U": "↑", "D": "↓"}
     ARROWS_FROM_SIGN = {+1: "↑", -1: "↓"}
     OFFSET = Timedelta(0)
-    STATUS = {"live": "OK"}
+    STATUS = {"live": "OK", "matched": "OK"}
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -83,12 +83,18 @@ class Polymarket(Exchange):
         status = response.get("status", None)
         status = cls.STATUS.get(status, None)
         if status is not None: return status
-        if "canceled" in response:
+        if ("canceled" in response):
             canceled = response["canceled"]
             if len(canceled): return "OK"
-        if "not_canceled" in response:
-            not_canceled = response["not_canceled"]
-            if len(not_canceled): return "ERROR"
+        if ("not_canceled" in response):
+            status = "OK"
+            not_canceled: dict = response["not_canceled"]
+            if len(not_canceled):
+                matched = "already canceled or matched"
+                for EID, error in not_canceled.items():
+                    if not str.endswith(error, matched):
+                        status = "ERROR"
+            return status
 
     #▄▄▄▄▄▄▄▄▄▄▄▄▄
     @classmethod#█▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
@@ -284,12 +290,13 @@ class ExecPolymarket(Polymarket, ExecConnector):
         try: response_obj = await self._client.place_limit_order(
             side = side, price = price, token_id = id, size = size)
         except Exception as EXC: raise ExecConnector.Reject(
-            f"Error creating order:\n => {order!r}\n => {EXC}")
+            f"Error creating order:\n => {order!r}\n => {EXC!r}")
 
         response_json = response_obj.model_dump()
         self._send_log.append(response_json)
         status = self.status_to_local(response_json)
         response_json["status"] = status
+        response_json["size"] = float(response_json.pop("making_amount"))
 
         tf = self.symbol_to_tf(order.symbol)
         order.expiration = now.ceil(tf.value)
@@ -329,7 +336,10 @@ class ExecPolymarket(Polymarket, ExecConnector):
             return False
         EID = self._ordermap[UID]
         if (self._client is None): await self.start(self._auth)
-        response_obj = await self._client.cancel_order(order_id = EID)
+        try:
+            response_obj = await self._client.cancel_order(order_id = EID)
+        except Exception as EXC: raise ExecConnector.Reject(
+            f"Error deleting order:\n => {UID} {EID}\n => {EXC!r}")
         
         response_json = response_obj.model_dump()
         self._send_log.append(response_json)
