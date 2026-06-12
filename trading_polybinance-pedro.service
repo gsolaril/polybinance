@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=gaston
 Group=gaston
-WorkingDirectory=/home/gaston/polybinance
+WorkingDirectory=/srv/shared/polybinance
 ExecStart=/home/gaston/.python/bin/python main.py Pedro
 Restart=no
 
