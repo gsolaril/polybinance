@@ -197,14 +197,15 @@ class Strategy(metaclass = Meta):
     #▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
     async def delete_order(self, UID: str):
         try: 
-            if UID in self._orders_current:
-                order: dict = self._orders_current[UID]
-            else: Log.error(f"Order {UID} not found"); return False
+            order: dict = self._orders_current.get(UID, None)
+            if (order is None) or (UID is None):
+                Log.error(f"Order {UID} not found")
+                return False, UID
             conn = self._get_conn(order["venue"])
             ok = await conn.delete_order(UID)
             if ok and UID in self._orders_current:
                 self._orders_current.pop(UID, None)
-                self._orders_history[UID].status = "deleted"
+                self._orders_history[UID]["status"] = "deleted"
         except Exception as EXC:
             Log.exception(EXC)
             ok = False
