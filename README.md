@@ -28,9 +28,9 @@ See [Credentials](#credentials) below for section layout.
 ### 3. Run a strategy
 
 ```bash
-python main.py                  # runs Test (default)
-python main.py Test             # explicit
-python main.py Test freq=TimeFrame.M1
+python main.py                                           # runs Test strategy (default)
+python main.py MySuperStrategy                           # runs strat with default values for all parameters
+python main.py MySuperStrategy freq=TF.M1 ema_period=14  # runs strat with specific values (rest stays default)
 ```
 
 The process blocks until interrupted (`Ctrl+C`) or a fatal error. On shutdown, `on_kill` runs for cleanup and exports.
