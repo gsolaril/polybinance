@@ -102,6 +102,8 @@ WorkingDirectory=/srv/shared/polybinance
 ExecStart=/path/to/venv/bin/python main.py Test
 ```
 
+Just keep in mind
+
 ---
 
 ## Credentials
@@ -114,7 +116,7 @@ All secrets live in **`config.ini`** at the project root (git-ignored). `src/uti
 | `[BYBIT]` | Bybit connectors | `api_key`, `secret` |
 | `[POLYMARKET]` | Polymarket connector | `private_key`, `relayer_key`, `wallet_address`, `relayer_address` |
 | `[ROFEX]` | Rofex connector | `username`, `password`, `account`, `symbols` |
-| `[PREDEFINED]` | Global settings | `symbols` (space-separated base assets), `polyevents` (Polymarket timeframes) |
+| `[PREDEFINED]` | Global settings | `symbols` (space-separated base assets), `polyevents` (Polymarket crypto-event durations) |
 
 Each connector reads its section at class definition time, e.g. `Binance.AUTH = Auth(**CONFIG["BINANCE"])`.
 
@@ -187,6 +189,7 @@ Called once during `Strategy.__init__`, after internal state (`_orders_current`,
 
 - Initialize instance attributes
 - Register cron tasks with `self.add_cron(method, TimeFrame.X)`
+- Do whatever you want at the start of the strategy (even trading)
 
 ### Cron tasks (`add_cron`)
 
@@ -261,15 +264,15 @@ Data is served from each connector's in-memory `Bundle` — ticks are stored per
 
 ```python
 order = Order(
-    venue  = "Polymarket",
-    symbol = "BTC↑M5",
-    size   = 10,          # positive = buy, negative = sell
-    price  = 0.50,        # omit for market-style IOC
+    venue  = "BinanceUsdm",
+    symbol = "BTCUSDT",
+    size   = -0.0001,     # positive = buy, negative = sell
+    price  = 62527.0,     # omit for market-style IOC
 )
 ok, response = await self.create_order(order)
 ```
 
-**UID** — assigned at construction from the order timestamp: microsecond epoch encoded in base-36 uppercase. It is the local identifier before and after the exchange acknowledges the order.
+**UID** — assigned at construction from the order timestamp: microsecond epoch encoded in base-36 uppercase. It is the 10-character local identifier before and after the exchange acknowledges the order. 
 
 **Exchange ID (`EID`)** — returned by the venue in the `Response` and stored alongside the UID.
 
@@ -285,7 +288,7 @@ ok, response = await self.create_order(order)
 ```python
 self.orders()              # DataFrame of open orders
 self.orders("HJEDSJUZJZ")  # single order dict by UID
-await self.modify_order(uid, new_order)
+await self.modify_order(uid, new_order) # Warning: not implemented yet for most exchanges
 await self.delete_order(uid)
 ```
 
@@ -401,34 +404,24 @@ Uncomment entries to add them to `DataConnectors` / `ExecConnectors`. Each excha
 - **`Data<Exchange>`** — WebSocket streams → `Bundle` + callbacks
 - **`Exec<Exchange>`** — REST (or SDK) order placement
 
-Strategies refer to venues by the class name (`"BinanceUsdm"`, `"Polymarket"`, `"BybitLinear"`, `"Rofex"`).
+Strategies refer to venues by the class name (`"BinanceUsdm"`, `"Polymarket"`, `"BybitLinear"`, `"Rofex"`). Both ticks, candles and orders have the "venue" and "symbol" fields for better identification of the source/destination of them.
 
 ---
 
 ## Roadmap — toward a distributed engine
 
-This repo intentionally keeps everything in one process: connectors, in-memory bundle, and strategy share the same address space. That keeps latency and complexity low for research and small live runs.
+This repo intentionally keeps everything in one process: connectors, in-memory bundle, and strategy share the same address space. That keeps latency and complexity low for research and small live runs. All in all, this project should be considered as a simple prototype for strategies that don't require extreme performances, to be used by myself for my own personal trading "in the meantime" on my local Windows machine.
 
-The natural evolution is to **split the monolith into independent services** connected by databases and message brokers:
-
-```
- ┌──────────────┐   ┌──────────────┐   ┌─────────────────┐
- │ Data conns   │   │ Exec conns   │   │ Strategy runtime │
- │ (WS per ex.) │   │ (REST per ex)│   │ (event handlers) │
- └──────┬───────┘   └──────┬───────┘   └────────┬────────┘
-        │ publish           │ publish            │ subscribe
-        ▼                   ▼                    ▼
-   ┌─────────┐         ┌──────────┐        ┌───────────┐
-   │  Redis  │         │ Postgres │        │ClickHouse │
-   │ (ticks) │         │ (orders) │        │ (history) │
-   └─────────┘         └──────────┘        └───────────┘
-```
+This may serve as a starting point for a project I am developing nowadays, which is the natural evolution: **splitting the monolith into independent services**. Everything connected by databases, message brokers and other containers within a cloud server:
 
 At a high level:
 
-- **Data connectors** become standalone processes that normalize ticks/candles and publish to a stream bus.
-- **Execution connectors** and an **order manager** own order state in a transactional store.
+- **Data connectors** become standalone processes for each data source (exchanges, trading venues, external dashboards) that normalize ticks/candles and publish to a stream bus with an internal cache (e.g.: Redis).
+- A separate **data resampler** collects the data from all of the connectors in the stream bus, creates candles of other timeframes and publishes them back in the stream bus, as well as storing them in a time-serialized database (e.g.: TimescaleDB)
+- An **order manager** owns order state and risk management across accounts in a transactional store, and deposits orders in the bus to be collected by **execution connectors** associated to each trading venue fpr further execution. The order responses are placed back in the bus for strategies and other services for consumption and further actions.
 - **Strategy management** handles deployment, parameters, and lifecycle separately from **strategy runtime** (the event-loop that consumes market data and emits intents).
 - **Monitoring** attaches to the same stores for dashboards, alerts, and post-trade analysis.
 
-The goal is a generalized, high-performance trading stack with real-time storage — same conceptual model as here (`Tick` → listener → `Order`), but with persistence and horizontal scaling between components instead of a single `Bundle` in RAM.
+The goal is a generalized, high-performance trading stack with real-time storage — same conceptual model as here (`Tick` → listener → `Order`), but with persistence and horizontal scaling between components instead of a single `Bundle` in RAM. Right now being coded in Python, but will be redesigned in C++ in the future (PyBind 11 framework will still allow Python strategies to run with the rest of the C++ ecosystem).
+
+Anyway: COMING SOON :) Thanks for reading!
