@@ -65,7 +65,7 @@ Examples:
 ```bash
 python main.py
 python main.py Test
-python main.py Test freq=TimeFrame.H1
+python main.py Test freq=TF.H1 # <= You can write timeframes like this
 python main.py Test foo=1 bar="hello"
 ```
 
